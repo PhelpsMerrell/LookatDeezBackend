@@ -7,7 +7,7 @@ namespace LookatDeezBackend.Extensions
         public static string? GetUserId(this HttpRequestData req)
         {
             // Try to get user ID from custom header first
-            if (req.Headers.TryGetValues("X-User-Id", out var headerValues))
+            if (req.Headers.TryGetValues("x-user-id", out var headerValues))
             {
                 return headerValues.FirstOrDefault();
             }

@@ -1,4 +1,5 @@
 ﻿using LookatDeezBackend.Data.Models;
+using LookatDeezBackend.Data.Repositories;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Cosmos.Linq;
 using Microsoft.Extensions.Configuration;
@@ -9,6 +10,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using User = LookatDeezBackend.Data.Models.User;
 
 namespace LookatDeezBackend.Data.Services
 {
@@ -16,6 +18,8 @@ namespace LookatDeezBackend.Data.Services
     {
         private readonly Microsoft.Azure.Cosmos.Container _playlistContainer;
         private readonly Microsoft.Azure.Cosmos.Container _permissionContainer;
+        private readonly IFriendRequestRepository _friendRequestRepository;
+        private readonly IUserRepository _userRepository;
 
         public CosmosService(IConfiguration configuration)
         {
@@ -27,6 +31,10 @@ namespace LookatDeezBackend.Data.Services
 
             _playlistContainer = database.GetContainer("playlists");
             _permissionContainer = database.GetContainer("permissions");
+            
+            // Initialize repositories
+            _friendRequestRepository = new FriendRequestRepository(cosmosClient, databaseName);
+            _userRepository = new UserRepository(cosmosClient, databaseName);
         }
 
         public async Task<Playlist> CreatePlaylistAsync(Playlist playlist)
@@ -200,6 +208,63 @@ namespace LookatDeezBackend.Data.Services
             {
                 await _permissionContainer.DeleteItemAsync<Models.Permission>(permission.Id, new PartitionKey(permission.PlaylistId));
             }
+        }
+        
+        // Friend-related methods
+        public async Task<FriendRequest> CreateFriendRequestAsync(FriendRequest friendRequest)
+        {
+            return await _friendRequestRepository.CreateFriendRequestAsync(friendRequest);
+        }
+
+        public async Task<FriendRequest> GetFriendRequestByIdAsync(string requestId)
+        {
+            return await _friendRequestRepository.GetFriendRequestByIdAsync(requestId);
+        }
+
+        public async Task<FriendRequest> UpdateFriendRequestAsync(FriendRequest friendRequest)
+        {
+            return await _friendRequestRepository.UpdateFriendRequestAsync(friendRequest);
+        }
+
+        public async Task<bool> DeleteFriendRequestAsync(string requestId, string fromUserId)
+        {
+            return await _friendRequestRepository.DeleteFriendRequestAsync(requestId, fromUserId);
+        }
+
+        public async Task<List<FriendRequest>> GetSentRequestsAsync(string fromUserId)
+        {
+            return await _friendRequestRepository.GetSentRequestsAsync(fromUserId);
+        }
+
+        public async Task<List<FriendRequest>> GetReceivedRequestsAsync(string toUserId)
+        {
+            return await _friendRequestRepository.GetReceivedRequestsAsync(toUserId);
+        }
+
+        public async Task<FriendRequest> GetExistingRequestAsync(string fromUserId, string toUserId)
+        {
+            return await _friendRequestRepository.GetExistingRequestAsync(fromUserId, toUserId);
+        }
+
+        public async Task<List<FriendRequest>> GetPendingRequestsAsync(string userId)
+        {
+            return await _friendRequestRepository.GetPendingRequestsAsync(userId);
+        }
+        
+        // User methods
+        public async Task<User> GetUserByIdAsync(string userId)
+        {
+            return await _userRepository.GetUserByIdAsync(userId);
+        }
+
+        public async Task<User> UpdateUserAsync(User user)
+        {
+            return await _userRepository.UpdateUserAsync(user);
+        }
+
+        public async Task<List<User>> SearchUsersAsync(string searchTerm)
+        {
+            return await _userRepository.SearchUsersAsync(searchTerm);
         }
     }
 }

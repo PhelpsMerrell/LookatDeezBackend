@@ -8,6 +8,12 @@ using System.Threading.Tasks;
 
 namespace LookatDeezBackend.Data.Models
 {
+    public enum FriendRequestStatus
+    {
+        Pending = 0,
+        Accepted = 1,
+        Declined = 2
+    }
     public class FriendRequest
     {
         [JsonPropertyName("id")]
@@ -24,7 +30,7 @@ namespace LookatDeezBackend.Data.Models
 
         [JsonPropertyName("status")]
         [JsonProperty("status")]
-        public string Status { get; set; } = "pending"; // "pending", "accepted", "declined"
+        public FriendRequestStatus Status { get; set; } = FriendRequestStatus.Pending;
 
         [JsonPropertyName("requestedAt")]
         [JsonProperty("requestedAt")]

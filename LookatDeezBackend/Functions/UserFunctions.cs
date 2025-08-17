@@ -10,6 +10,7 @@ using LookatDeezBackend.Data.Models;
 using LookatDeezBackend.Data.Repositories;
 using System.ComponentModel.DataAnnotations;
 using System.Net;
+using System.Web;
 // Explicitly use System.Text.Json to avoid ambiguity
 using SystemTextJson = System.Text.Json;
 using System.Text.Json.Serialization;
@@ -70,7 +71,7 @@ namespace LookatDeezBackend.Functions
             Description = "An unexpected error occurred"
         )]
         public async Task<HttpResponseData> CreateUser(
-            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "users")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "users")] HttpRequestData req)
         {
             try
             {
@@ -164,6 +165,94 @@ namespace LookatDeezBackend.Functions
             }
         }
 
+        [Function("SearchUsers")]
+        [OpenApiOperation(
+            operationId: "searchUsers",
+            tags: new[] { "Users" },
+            Summary = "Search users",
+            Description = "Search for users by display name or email address."
+        )]
+        [OpenApiParameter(
+            name: "q",
+            In = ParameterLocation.Query,
+            Required = true,
+            Type = typeof(string),
+            Summary = "Search query",
+            Description = "Search term for display name or email"
+        )]
+        [OpenApiParameter(
+            name: "x-user-id",
+            In = ParameterLocation.Header,
+            Required = true,
+            Type = typeof(string),
+            Summary = "Requesting User ID",
+            Description = "The ID of the user making the request"
+        )]
+        [OpenApiResponseWithBody(
+            statusCode: HttpStatusCode.OK,
+            contentType: "application/json",
+            bodyType: typeof(List<User>),
+            Summary = "Search results",
+            Description = "Returns list of users matching the search term"
+        )]
+        [OpenApiResponseWithBody(
+            statusCode: HttpStatusCode.BadRequest,
+            contentType: "application/json",
+            bodyType: typeof(ErrorResponse),
+            Summary = "Invalid request",
+            Description = "Missing search query or x-user-id header"
+        )]
+        public async Task<HttpResponseData> SearchUsers(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/search")] HttpRequestData req)
+        {
+            try
+            {
+                _logger.LogInformation("Searching for users");
+
+                // Validate x-user-id header
+                if (!req.Headers.TryGetValues("x-user-id", out var requestingUserIds) ||
+                    !requestingUserIds.Any() ||
+                    string.IsNullOrWhiteSpace(requestingUserIds.First()))
+                {
+                    _logger.LogWarning("Missing or empty x-user-id header");
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "x-user-id header is required" });
+                    return badResponse;
+                }
+
+                // Get search query
+                var query = req.Url.Query;
+                var queryParams = System.Web.HttpUtility.ParseQueryString(query);
+                var searchTerm = queryParams["q"];
+
+                if (string.IsNullOrWhiteSpace(searchTerm))
+                {
+                    _logger.LogWarning("Empty search term");
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Search query 'q' is required" });
+                    return badResponse;
+                }
+
+                _logger.LogInformation("Searching for users with term: {SearchTerm}", searchTerm);
+
+                // Search users
+                var users = await _userRepository.SearchUsersAsync(searchTerm.Trim());
+
+                _logger.LogInformation("Found {Count} users matching search term", users.Count);
+
+                var successResponse = req.CreateResponse(HttpStatusCode.OK);
+                await successResponse.WriteAsJsonAsync(users);
+                return successResponse;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching users");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new ErrorResponse { Error = "An unexpected error occurred" });
+                return errorResponse;
+            }
+        }
+
         [Function("GetUserProfile")]
         [OpenApiOperation(
             operationId: "getUserProfile",
@@ -216,7 +305,7 @@ namespace LookatDeezBackend.Functions
             Description = "An unexpected error occurred"
         )]
         public async Task<HttpResponseData> GetUserProfile(
-            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "users/{userId}/profile")] HttpRequestData req,
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/{userId}/profile")] HttpRequestData req,
             string userId)
         {
             try
