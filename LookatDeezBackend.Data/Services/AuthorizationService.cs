@@ -15,10 +15,10 @@ namespace LookatDeezBackend.Data.Services
         {
             _cosmosService = cosmosService;
         }
-
+      
         public async Task<bool> CanViewPlaylistAsync(string userId, string playlistId)
         {
-            var playlist = await _cosmosService.GetPlaylistAsync(playlistId);
+            var playlist = await _cosmosService.GetPlaylistByIdAsync(playlistId);
             if (playlist == null) return false;
 
             if (playlist.OwnerId == userId) return true;
@@ -30,7 +30,7 @@ namespace LookatDeezBackend.Data.Services
 
         public async Task<bool> CanEditPlaylistAsync(string userId, string playlistId)
         {
-            var playlist = await _cosmosService.GetPlaylistAsync(playlistId);
+            var playlist = await _cosmosService.GetPlaylistByIdAsync(playlistId);
             if (playlist == null) return false;
 
             if (playlist.OwnerId == userId) return true;
@@ -41,7 +41,7 @@ namespace LookatDeezBackend.Data.Services
 
         public async Task<bool> CanManagePermissionsAsync(string userId, string playlistId)
         {
-            var playlist = await _cosmosService.GetPlaylistAsync(playlistId);
+            var playlist = await _cosmosService.GetPlaylistByIdAsync(playlistId);
             if (playlist == null) return false;
 
             if (playlist.OwnerId == userId) return true;

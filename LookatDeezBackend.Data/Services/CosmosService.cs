@@ -31,22 +31,44 @@ namespace LookatDeezBackend.Data.Services
 
         public async Task<Playlist> CreatePlaylistAsync(Playlist playlist)
         {
-            var response = await _playlistContainer.CreateItemAsync(playlist, new PartitionKey(playlist.Id));
-            return response.Resource;
+            // MUST set id/ownerId before this call
+            var playlistResp = await _playlistContainer.CreateItemAsync(playlist, new PartitionKey(playlist.OwnerId));
+
+            // Create owner permission record
+            var ownerPermission = new Models.Permission
+            {
+                PlaylistId = playlist.Id,
+                UserId = playlist.OwnerId,
+                PermissionLevel = "admin",
+                GrantedBy = playlist.OwnerId, // Owner grants themselves admin permission
+                GrantedAt = DateTime.UtcNow
+            };
+
+            // Add permission record to permissions container
+            await _permissionContainer.CreateItemAsync(ownerPermission, new PartitionKey(ownerPermission.PlaylistId));
+
+            return playlistResp.Resource;
         }
 
-        public async Task<Playlist> GetPlaylistAsync(string id)
+        public async Task<Playlist?> GetPlaylistByIdAsync(string id)
         {
-            try
+            var q = new Microsoft.Azure.Cosmos.QueryDefinition(
+                "SELECT * FROM c WHERE c.id = @id").WithParameter("@id", id);
+
+            var it = _playlistContainer.GetItemQueryIterator<Playlist>(
+                q,
+                requestOptions: new Microsoft.Azure.Cosmos.QueryRequestOptions { MaxItemCount = 1 } // cross-partition by default
+            );
+
+            while (it.HasMoreResults)
             {
-                var response = await _playlistContainer.ReadItemAsync<Playlist>(id, new PartitionKey(id));
-                return response.Resource;
+                var page = await it.ReadNextAsync();
+                var doc = page.Resource.FirstOrDefault();
+                if (doc is not null) return doc;
             }
-            catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                throw;
-            }
+            return null;
         }
+
 
         public async Task<IEnumerable<Playlist>> GetUserPlaylistsAsync(string userId)
         {
@@ -79,31 +101,59 @@ namespace LookatDeezBackend.Data.Services
             var playlists = new List<Playlist>();
             foreach (var playlistId in playlistIds)
             {
-                var playlist = await GetPlaylistAsync(playlistId);
+                var playlist = await GetPlaylistByIdAsync(playlistId);
                 if (playlist != null) playlists.Add(playlist);
             }
             return playlists;
         }
 
-        public async Task<Playlist> UpdatePlaylistAsync(Playlist playlist)
+        // In your CosmosService class
+        public async Task UpdatePlaylistAsync(Playlist playlist)
         {
-            playlist.UpdatedAt = System.DateTime.UtcNow;
-            var response = await _playlistContainer.UpsertItemAsync(playlist, new PartitionKey(playlist.Id));
-            return response.Resource;
+            try
+            {
+                // For playlist container with partition key /ownerId
+                await _playlistContainer.ReplaceItemAsync(
+                    item: playlist,
+                    id: playlist.Id,
+                    partitionKey: new PartitionKey(playlist.OwnerId) // This is crucial!
+                );
+            }
+            catch (CosmosException ex)
+            {
+                // Log and rethrow
+                throw;
+            }
         }
 
-        public async Task DeletePlaylistAsync(string id)
+        // Alternative overload if you want to be more explicit
+        public async Task UpdatePlaylistAsync(Playlist playlist, string ownerId)
         {
-            await _playlistContainer.DeleteItemAsync<Playlist>(id, new PartitionKey(id));
+            try
+            {
+                await _playlistContainer.ReplaceItemAsync(
+                    item: playlist,
+                    id: playlist.Id,
+                    partitionKey: new PartitionKey(ownerId)
+                );
+            }
+            catch (CosmosException ex)
+            {
+                throw;
+            }
+        }
+        public async Task DeletePlaylistAsync(string id, string ownerId) // Add ownerId parameter
+        {
+            // Delete the playlist - partition key is ownerId
+            await _playlistContainer.DeleteItemAsync<Playlist>(id, new PartitionKey(ownerId));
 
-            // Delete all permissions
+            // Delete all permissions - partition key is playlistId  
             var permissions = await GetPlaylistPermissionsAsync(id);
             foreach (var permission in permissions)
             {
                 await _permissionContainer.DeleteItemAsync<Models.Permission>(permission.Id, new PartitionKey(permission.PlaylistId));
             }
         }
-
         public async Task<Models.Permission> CreatePermissionAsync(Models.Permission permission)
         {
             var response = await _permissionContainer.CreateItemAsync(permission, new PartitionKey(permission.PlaylistId));
