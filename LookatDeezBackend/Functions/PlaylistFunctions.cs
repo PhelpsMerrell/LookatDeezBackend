@@ -368,18 +368,25 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
+                // Add debug logging
+                _logger.LogInformation($"AddItem called for playlist: {playlistId}");
+                
                 // Extract user ID from header
                 if (!req.Headers.TryGetValues("x-user-id", out var userIdValues) ||
                     !userIdValues.Any())
                 {
+                    _logger.LogWarning("Missing x-user-id header");
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
                     await unauthorizedResponse.WriteStringAsync("User ID header is required");
                     return unauthorizedResponse;
                 }
 
                 var userId = userIdValues.First();
+                _logger.LogInformation($"User ID from header: {userId}");
+                
                 if (string.IsNullOrWhiteSpace(userId))
                 {
+                    _logger.LogWarning("Empty user ID");
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
                     await unauthorizedResponse.WriteStringAsync("User ID cannot be empty");
                     return unauthorizedResponse;
@@ -387,8 +394,11 @@ namespace LookatDeezBackend.Functions
 
                 // Parse request body
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+                _logger.LogInformation($"Request body: {requestBody}");
+                
                 if (string.IsNullOrWhiteSpace(requestBody))
                 {
+                    _logger.LogWarning("Empty request body");
                     var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("Request body is required");
                     return badRequestResponse;

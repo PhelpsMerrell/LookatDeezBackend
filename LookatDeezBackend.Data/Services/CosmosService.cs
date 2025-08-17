@@ -102,7 +102,11 @@ namespace LookatDeezBackend.Data.Services
             foreach (var playlistId in playlistIds)
             {
                 var playlist = await GetPlaylistByIdAsync(playlistId);
-                if (playlist != null) playlists.Add(playlist);
+                // Only include playlists that are NOT owned by this user (i.e., truly shared)
+                if (playlist != null && playlist.OwnerId != userId)
+                {
+                    playlists.Add(playlist);
+                }
             }
             return playlists;
         }
