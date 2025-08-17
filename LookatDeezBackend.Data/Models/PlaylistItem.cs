@@ -23,5 +23,8 @@ namespace LookatDeezBackend.Data.Models
 
         [JsonPropertyName("addedBy")]
         public string AddedBy { get; set; }
+
+        [JsonPropertyName("order")]
+        public int Order { get; set; } = 0;
     }
 }

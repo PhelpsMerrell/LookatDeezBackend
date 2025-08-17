@@ -222,6 +222,12 @@ namespace LookatDeezBackend.Functions
             if (playlist is null)
                 return req.CreateResponse(HttpStatusCode.NotFound);
 
+            // Ensure items are ordered correctly
+            if (playlist.Items != null && playlist.Items.Any())
+            {
+                playlist.Items = playlist.Items.OrderBy(item => item.Order).ToList();
+            }
+
             var res = req.CreateResponse(HttpStatusCode.OK);
             await res.WriteAsJsonAsync(playlist, new() {  });
             return res;
@@ -473,7 +479,8 @@ namespace LookatDeezBackend.Functions
                     Title = addItemRequest.Title.Trim(),
                     Url = addItemRequest.Url.Trim(),
                     AddedAt = DateTime.UtcNow,
-                    AddedBy = userId
+                    AddedBy = userId,
+                    Order = playlist.Items?.Count ?? 0 // Auto-assign next order
                 };
 
                 // Add item to playlist
@@ -671,7 +678,187 @@ namespace LookatDeezBackend.Functions
             }
         }
 
+        [Function("ReorderItems")]
+        [OpenApiOperation(
+            operationId: "ReorderItems",
+            tags: new[] { "Playlists" },
+            Summary = "Reorder items in a playlist",
+            Description = "Updates the order of items in the specified playlist if the caller has edit permissions."
+        )]
+        [OpenApiParameter(
+            name: "playlistId",
+            In = ParameterLocation.Path,
+            Required = true,
+            Type = typeof(string),
+            Summary = "The playlist id"
+        )]
+        [OpenApiParameter(
+            name: "x-user-id",
+            In = ParameterLocation.Header,
+            Required = true,
+            Type = typeof(string),
+            Summary = "Dev-only user id header (replace with Azure AD B2C later)."
+        )]
+        [OpenApiRequestBody(
+            contentType: "application/json",
+            bodyType: typeof(ReorderItemsRequest),
+            Required = true,
+            Description = "The new order of items as an array of item IDs"
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.NoContent,
+            Description = "Items reordered successfully."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.BadRequest,
+            Description = "Invalid request data."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.Unauthorized,
+            Description = "User not authenticated."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.Forbidden,
+            Description = "User does not have permission to edit this playlist."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.NotFound,
+            Description = "Playlist not found."
+        )]
+        public async Task<HttpResponseData> ReorderItems(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "put", Route = "playlists/{playlistId}/items/order")] HttpRequestData req,
+            string playlistId)
+        {
+            try
+            {
+                // Get user ID
+                var userId = req.GetUserId();
+                if (string.IsNullOrEmpty(userId))
+                {
+                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                    await unauthorizedResponse.WriteStringAsync("User ID header is required");
+                    return unauthorizedResponse;
+                }
 
+                // Validate playlist ID
+                if (string.IsNullOrWhiteSpace(playlistId))
+                {
+                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequestResponse.WriteStringAsync("Playlist ID is required");
+                    return badRequestResponse;
+                }
+
+                // Parse request body
+                string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+                if (string.IsNullOrWhiteSpace(requestBody))
+                {
+                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequestResponse.WriteStringAsync("Request body is required");
+                    return badRequestResponse;
+                }
+
+                ReorderItemsRequest reorderRequest;
+                try
+                {
+                    reorderRequest = System.Text.Json.JsonSerializer.Deserialize<ReorderItemsRequest>(requestBody, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequestResponse.WriteStringAsync($"Invalid JSON format: {ex.Message}");
+                    return badRequestResponse;
+                }
+
+                // Validate request data
+                if (reorderRequest == null || reorderRequest.ItemOrder == null || !reorderRequest.ItemOrder.Any())
+                {
+                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequestResponse.WriteStringAsync("Item order array is required");
+                    return badRequestResponse;
+                }
+
+                // Check permissions
+                if (!await _authService.CanEditPlaylistAsync(userId, playlistId))
+                {
+                    var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
+                    await forbiddenResponse.WriteStringAsync("You do not have permission to edit this playlist");
+                    return forbiddenResponse;
+                }
+
+                // Get playlist
+                var playlist = await _cosmosService.GetPlaylistByIdAsync(playlistId);
+                if (playlist == null)
+                {
+                    var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                    await notFoundResponse.WriteStringAsync("Playlist not found");
+                    return notFoundResponse;
+                }
+
+                // Validate that all item IDs exist in the playlist
+                if (playlist.Items == null || !playlist.Items.Any())
+                {
+                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequestResponse.WriteStringAsync("Playlist has no items to reorder");
+                    return badRequestResponse;
+                }
+
+                var existingItemIds = playlist.Items.Select(i => i.Id).ToHashSet();
+                var requestedItemIds = reorderRequest.ItemOrder.ToHashSet();
+
+                if (!existingItemIds.SetEquals(requestedItemIds))
+                {
+                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequestResponse.WriteStringAsync("Item order must contain all existing item IDs");
+                    return badRequestResponse;
+                }
+
+                // Update the order of items
+                var itemLookup = playlist.Items.ToDictionary(i => i.Id);
+                for (int i = 0; i < reorderRequest.ItemOrder.Count; i++)
+                {
+                    var itemId = reorderRequest.ItemOrder[i];
+                    if (itemLookup.TryGetValue(itemId, out var item))
+                    {
+                        item.Order = i;
+                    }
+                }
+
+                // Sort items by new order
+                playlist.Items = playlist.Items.OrderBy(i => i.Order).ToList();
+
+                // Update timestamp
+                playlist.UpdatedAt = DateTime.UtcNow;
+
+                // Save playlist
+                await _cosmosService.UpdatePlaylistAsync(playlist);
+
+                // Return success
+                return req.CreateResponse(HttpStatusCode.NoContent);
+            }
+            catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+            {
+                var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                await notFoundResponse.WriteStringAsync("Playlist not found");
+                return notFoundResponse;
+            }
+            catch (CosmosException ex)
+            {
+                _logger.LogError(ex, "Database error while reordering items for playlist {PlaylistId}", playlistId);
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteStringAsync($"Database error: {ex.Message}");
+                return errorResponse;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error while reordering items for playlist {PlaylistId}", playlistId);
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteStringAsync($"An unexpected error occurred: {ex.Message}");
+                return errorResponse;
+            }
+        }
 
     }
 }
