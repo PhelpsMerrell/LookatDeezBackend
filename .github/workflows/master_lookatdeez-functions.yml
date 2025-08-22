@@ -1,19 +1,14 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/azure/functions-action
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-
 name: Build and deploy Azure Functions (.NET 8)
 
 on:
   push:
-    branches: [ main, master ]   # keep both; remove the one you don't use
+    branches: [ main, master ]
   workflow_dispatch:
 
 env:
-  # Set this to the folder that contains your Functions .csproj ('.' if the repo root is the project root)
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
-  # Exact SDK you said you're using:
   DOTNET_VERSION: '8.0.204'
-  # Output folder for publish
+  # CHANGE this if your csproj name is different:
+  PROJECT_FILE: 'LookatDeezBackend/LookatDeezBackend.csproj'
   PUBLISH_DIR: 'published'
 
 jobs:
@@ -36,7 +31,8 @@ jobs:
         shell: bash
         run: |
           dotnet --version
-          dotnet publish "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}" \
+          dotnet restore "${{ env.PROJECT_FILE }}"
+          dotnet publish "${{ env.PROJECT_FILE }}" \
             --configuration Release \
             --output "${{ env.PUBLISH_DIR }}"
 
@@ -50,6 +46,6 @@ jobs:
       - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
         with:
-          app-name: 'lookatdeez-functions'
+          app-name: 'lookatdeez-functions'     # your Function App name
           slot-name: 'Production'
           package: '${{ env.PUBLISH_DIR }}'
