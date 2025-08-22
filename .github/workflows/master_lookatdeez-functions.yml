@@ -1,53 +1,55 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/azure/functions-action
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 
-name: Build and deploy dotnet core project to Azure Function App - lookatdeez-functions
+name: Build and deploy Azure Functions (.NET 8)
 
 on:
   push:
-    branches:
-      - master
+    branches: [ main, master ]   # keep both; remove the one you don't use
   workflow_dispatch:
 
 env:
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.' # set this to the path to your web app project, defaults to the repository root
-  DOTNET_VERSION: '10.0.x' # set this to the dotnet version to use
+  # Set this to the folder that contains your Functions .csproj ('.' if the repo root is the project root)
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
+  # Exact SDK you said you're using:
+  DOTNET_VERSION: '8.0.204'
+  # Output folder for publish
+  PUBLISH_DIR: 'published'
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
+      id-token: write
+      contents: read
 
     steps:
-      - name: 'Checkout GitHub Action'
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup DotNet ${{ env.DOTNET_VERSION }} Environment
-        uses: actions/setup-dotnet@v1
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: 'Resolve Project Dependencies Using Dotnet'
+      - name: Restore & Publish
         shell: bash
         run: |
-          pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
-          dotnet build --configuration Release --output ./output
-          popd
-      
-      - name: Login to Azure
+          dotnet --version
+          dotnet publish "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}" \
+            --configuration Release \
+            --output "${{ env.PUBLISH_DIR }}"
+
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_7535D8B89C4F4B719148B58C8FF35484 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BEF8E29C85F848A199ECD77A7B703DD6 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_442E4247BBF54B478C9E86E6EFEB7D7F }}
 
-      - name: 'Run Azure Functions Action'
+      - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
-        id: fa
         with:
           app-name: 'lookatdeez-functions'
           slot-name: 'Production'
-          package: '${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/output'
-          
+          package: '${{ env.PUBLISH_DIR }}'
