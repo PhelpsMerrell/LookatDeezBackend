@@ -58,7 +58,7 @@ namespace LookatDeezBackend.Functions
         public async Task<HttpResponseData> GetPlaylists(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "playlists")] HttpRequestData req)
         {
-            var userId = req.GetUserId();
+            var userId = AuthHelper.GetUserId(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
                 var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
@@ -125,7 +125,7 @@ namespace LookatDeezBackend.Functions
         public async Task<HttpResponseData> CreatePlaylist(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "playlists")] HttpRequestData req)
         {
-            var userId = req.GetUserId();
+            var userId = AuthHelper.GetUserId(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
                 var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
@@ -208,7 +208,7 @@ namespace LookatDeezBackend.Functions
     HttpRequestData req,
     string id)
         {
-            var userId = req.GetUserId();
+            var userId = AuthHelper.GetUserId(req, _logger);
             if (string.IsNullOrWhiteSpace(userId))
                 return req.CreateResponse(HttpStatusCode.Unauthorized);
 
@@ -274,7 +274,7 @@ namespace LookatDeezBackend.Functions
             [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "playlists/{id}")] HttpRequestData req,
             string id)
         {
-            var userId = req.GetUserId();
+            var userId = AuthHelper.GetUserId(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
                 return req.CreateResponse(HttpStatusCode.Unauthorized);
@@ -590,7 +590,7 @@ namespace LookatDeezBackend.Functions
             try
             {
                 // Get user ID
-                var userId = req.GetUserId();
+                var userId = AuthHelper.GetUserId(req, _logger);
                 if (string.IsNullOrEmpty(userId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
@@ -732,7 +732,7 @@ namespace LookatDeezBackend.Functions
             try
             {
                 // Get user ID
-                var userId = req.GetUserId();
+                var userId = AuthHelper.GetUserId(req, _logger);
                 if (string.IsNullOrEmpty(userId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);

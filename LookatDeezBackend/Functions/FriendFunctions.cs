@@ -37,7 +37,7 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                var currentUserId = req.GetUserId();
+                var currentUserId = AuthHelper.GetUserId(req, _logger);
                 if (string.IsNullOrEmpty(currentUserId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
@@ -95,7 +95,7 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                var currentUserId = req.GetUserId();
+                var currentUserId = AuthHelper.GetUserId(req, _logger);
                 if (string.IsNullOrEmpty(currentUserId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
@@ -202,7 +202,7 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                var currentUserId = req.GetUserId();
+                var currentUserId = AuthHelper.GetUserId(req, _logger);
                 if (string.IsNullOrEmpty(currentUserId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
@@ -255,7 +255,7 @@ namespace LookatDeezBackend.Functions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting friend requests for user {UserId}", req.GetUserId());
+                _logger.LogError(ex, "Error getting friend requests for user {UserId}", AuthHelper.GetUserId(req, _logger));
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
                 await errorResponse.WriteStringAsync("An error occurred while retrieving friend requests");
                 return errorResponse;
@@ -276,7 +276,7 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                var currentUserId = req.GetUserId();
+                var currentUserId = AuthHelper.GetUserId(req, _logger);
                 if (string.IsNullOrEmpty(currentUserId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
@@ -389,7 +389,7 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                var currentUserId = req.GetUserId();
+                var currentUserId = AuthHelper.GetUserId(req, _logger);
                 if (string.IsNullOrEmpty(currentUserId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
@@ -436,7 +436,7 @@ namespace LookatDeezBackend.Functions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error removing friend {FriendId} for user {UserId}", friendId, req.GetUserId());
+                _logger.LogError(ex, "Error removing friend {FriendId} for user {UserId}", friendId, AuthHelper.GetUserId(req, _logger));
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
                 await errorResponse.WriteStringAsync("An error occurred while removing friend");
                 return errorResponse;

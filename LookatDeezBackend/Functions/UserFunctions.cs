@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using LookatDeezBackend.Data.Models;
 using LookatDeezBackend.Data.Repositories;
+using LookatDeezBackend.Extensions;
 using System.ComponentModel.DataAnnotations;
 using System.Net;
 using System.Web;
@@ -138,10 +139,13 @@ namespace LookatDeezBackend.Functions
                     return conflictResponse;
                 }
 
+                // Check if user is creating via Microsoft auth
+                var userIdFromToken = AuthHelper.GetUserId(req, _logger);
+                
                 // Create new user
                 var newUser = new User
                 {
-                    Id = Guid.NewGuid().ToString(),
+                    Id = userIdFromToken ?? Guid.NewGuid().ToString(),
                     Email = createUserDto.Email.Trim().ToLowerInvariant(),
                     DisplayName = createUserDto.DisplayName.Trim(),
                     CreatedAt = DateTime.UtcNow,
@@ -209,14 +213,13 @@ namespace LookatDeezBackend.Functions
             {
                 _logger.LogInformation("Searching for users");
 
-                // Validate x-user-id header
-                if (!req.Headers.TryGetValues("x-user-id", out var requestingUserIds) ||
-                    !requestingUserIds.Any() ||
-                    string.IsNullOrWhiteSpace(requestingUserIds.First()))
+                // Validate authentication
+                var requestingUserId = AuthHelper.GetUserId(req, _logger);
+                if (string.IsNullOrEmpty(requestingUserId))
                 {
-                    _logger.LogWarning("Missing or empty x-user-id header");
-                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "x-user-id header is required" });
+                    _logger.LogWarning("No valid authentication found");
+                    var badResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Authentication required" });
                     return badResponse;
                 }
 
@@ -321,18 +324,15 @@ namespace LookatDeezBackend.Functions
                     return badResponse;
                 }
 
-                // Validate x-user-id header (current auth mechanism)
-                if (!req.Headers.TryGetValues("x-user-id", out var requestingUserIds) ||
-                    !requestingUserIds.Any() ||
-                    string.IsNullOrWhiteSpace(requestingUserIds.First()))
+                // Validate authentication (JWT or x-user-id header)
+                var requestingUserId = AuthHelper.GetUserId(req, _logger);
+                if (string.IsNullOrEmpty(requestingUserId))
                 {
-                    _logger.LogWarning("Missing or empty x-user-id header");
-                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "x-user-id header is required" });
+                    _logger.LogWarning("No valid authentication found");
+                    var badResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Authentication required" });
                     return badResponse;
                 }
-
-                var requestingUserId = requestingUserIds.First();
                 _logger.LogInformation("Request from user: {RequestingUserId} for profile: {UserId}",
                     requestingUserId, userId);
 

@@ -20,6 +20,9 @@
     <PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="2.21.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.ApplicationInsights" Version="1.0.0" />
     <PackageReference Include="Microsoft.Azure.WebJobs.Core" Version="3.0.41" />
+    
+    <!-- JWT handling for Microsoft auth -->
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
   </ItemGroup>
 
   <ItemGroup>

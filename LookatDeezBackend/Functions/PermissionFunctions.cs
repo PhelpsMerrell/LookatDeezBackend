@@ -27,7 +27,7 @@ namespace LookatDeezBackend.Functions
         public async Task<HttpResponseData> SharePlaylist(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "playlists/{playlistId}/share")] HttpRequestData req)
         {
-            var userId = req.GetUserId();
+            var userId = AuthHelper.GetUserId(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
                 var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
@@ -80,7 +80,7 @@ namespace LookatDeezBackend.Functions
         public async Task<HttpResponseData> GetPlaylistPermissions(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "playlists/{playlistId}/permissions")] HttpRequestData req)
         {
-            var userId = req.GetUserId();
+            var userId = AuthHelper.GetUserId(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
                 var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
@@ -106,7 +106,7 @@ namespace LookatDeezBackend.Functions
         public async Task<HttpResponseData> RevokeAccess(
             [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "playlists/{playlistId}/permissions/{targetUserId}")] HttpRequestData req)
         {
-            var userId = req.GetUserId();
+            var userId = AuthHelper.GetUserId(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
                 var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
