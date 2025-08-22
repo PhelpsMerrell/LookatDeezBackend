@@ -10,7 +10,7 @@ env:
   PROJECT_FILE: 'LookatDeezBackend/LookatDeezBackend.csproj'
   PUBLISH_DIR: 'published'
   AZURE_FUNCTIONAPP_NAME: 'lookatdeez-functions'
-  AZURE_RESOURCE_GROUP: 'REPLACE_WITH_YOUR_RG_NAME'   # <-- set this
+  AZURE_RESOURCE_GROUP: 'LookatDeez'   # <-- set this
 
 jobs:
   build-and-deploy:
@@ -84,3 +84,4 @@ jobs:
             az account show --output none   # sanity check that login is present
             az functionapp restart -g "${{ env.AZURE_RESOURCE_GROUP }}" -n "${{ env.AZURE_FUNCTIONAPP_NAME }}"
             az rest -m POST -u "https://management.azure.com/subscriptions/${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_442E4247BBF54B478C9E86E6EFEB7D7F }}/resourceGroups/${{ env.AZURE_RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ env.AZURE_FUNCTIONAPP_NAME }}/syncfunctiontriggers?api-version=2022-03-01"
+
