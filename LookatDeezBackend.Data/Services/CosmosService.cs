@@ -24,7 +24,7 @@ namespace LookatDeezBackend.Data.Services
         public CosmosService(IConfiguration configuration)
         {
             var connectionString = configuration.GetConnectionString("CosmosDb");
-            var databaseName = configuration["CosmosDb:DatabaseName"];
+            var databaseName = configuration["CosmosDb_DatabaseName"];
 
             var cosmosClient = new CosmosClient(connectionString);
             var database = cosmosClient.GetDatabase(databaseName);

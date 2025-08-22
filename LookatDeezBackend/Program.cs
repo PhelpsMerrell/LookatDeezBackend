@@ -32,7 +32,7 @@ var host = new HostBuilder()
         services.AddScoped<IUserRepository>(serviceProvider =>
         {
             var cosmosClient = serviceProvider.GetRequiredService<CosmosClient>();
-            var databaseName = Environment.GetEnvironmentVariable("CosmosDb:DatabaseName") ?? "lookatdeez-db";
+            var databaseName = Environment.GetEnvironmentVariable("CosmosDb_DatabaseName") ?? "lookatdeez-db";
             return new UserRepository(cosmosClient, databaseName);
         });
 
