@@ -2,15 +2,15 @@ name: Build and deploy Azure Functions (.NET 8)
 
 on:
   push:
-    branches: [ master ]     # only master
-  workflow_dispatch:          # manual "Run workflow" button
+    branches: [ master ]    # only master
+  workflow_dispatch:
 
 env:
   DOTNET_VERSION: '8.0.204'
   PROJECT_FILE: 'LookatDeezBackend/LookatDeezBackend.csproj'
   PUBLISH_DIR: 'published'
   AZURE_FUNCTIONAPP_NAME: 'lookatdeez-functions'
-  AZURE_RESOURCE_GROUP: 'REPLACE_WITH_YOUR_RG_NAME'  # <-- set this
+  AZURE_RESOURCE_GROUP: 'REPLACE_WITH_YOUR_RG_NAME'   # <-- set this
 
 jobs:
   build-and-deploy:
@@ -53,7 +53,7 @@ jobs:
           [ "$COUNT" -gt 0 ] || (echo "::error::no function.json generated" && exit 1)
           find "${{ env.PUBLISH_DIR }}" -maxdepth 2 -name function.json -print
 
-      - name: Azure Login (OIDC)
+      - name: Azure Login (OIDC) for deploy
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_7535D8B89C4F4B719148B58C8FF35484 }}
@@ -67,10 +67,20 @@ jobs:
           slot-name: 'Production'
           package: '${{ env.PUBLISH_DIR }}'
 
+      # OPTIONAL: restart + re-sync triggers (requires login inside the CLI container)
+      - name: Azure Login (OIDC) for CLI
+        uses: azure/login@v2
+
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_7535D8B89C4F4B719148B58C8FF35484 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BEF8E29C85F848A199ECD77A7B703DD6 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_442E4247BBF54B478C9E86E6EFEB7D7F }}
+
       - name: Restart & Re-sync triggers
-        if: always()
         uses: azure/cli@v2
         with:
           inlineScript: |
+            set -e
+            az account show --output none   # sanity check that login is present
             az functionapp restart -g "${{ env.AZURE_RESOURCE_GROUP }}" -n "${{ env.AZURE_FUNCTIONAPP_NAME }}"
             az rest -m POST -u "https://management.azure.com/subscriptions/${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_442E4247BBF54B478C9E86E6EFEB7D7F }}/resourceGroups/${{ env.AZURE_RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ env.AZURE_FUNCTIONAPP_NAME }}/syncfunctiontriggers?api-version=2022-03-01"
