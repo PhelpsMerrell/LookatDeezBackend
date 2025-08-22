@@ -1,8 +1,8 @@
-name: Build and deploy Azure Functions (.NET 8)
+name: Deploy LookatDeez Functions (.NET 8)
 
 on:
   push:
-    branches: [ master ]    # only master
+    branches: [ master ]
   workflow_dispatch:
 
 env:
@@ -10,10 +10,9 @@ env:
   PROJECT_FILE: 'LookatDeezBackend/LookatDeezBackend.csproj'
   PUBLISH_DIR: 'published'
   AZURE_FUNCTIONAPP_NAME: 'lookatdeez-functions'
-  AZURE_RESOURCE_GROUP: 'LookatDeez'   # <-- set this
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -23,7 +22,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+      - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
@@ -43,17 +42,29 @@ jobs:
           dotnet restore "${{ env.PROJECT_FILE }}"
           dotnet publish "${{ env.PROJECT_FILE }}" -c Release -o "${{ env.PUBLISH_DIR }}"
 
-      - name: Verify Functions package layout
+      - name: Verify Functions package layout (net8 isolated)
         shell: bash
         run: |
           set -euo pipefail
           echo "Publish dir contents:" && ls -la "${{ env.PUBLISH_DIR }}"
           test -f "${{ env.PUBLISH_DIR }}/host.json" || (echo "::error::host.json missing" && exit 1)
-          COUNT=$(find "${{ env.PUBLISH_DIR }}" -maxdepth 2 -name function.json | wc -l)
-          [ "$COUNT" -gt 0 ] || (echo "::error::no function.json generated" && exit 1)
-          find "${{ env.PUBLISH_DIR }}" -maxdepth 2 -name function.json -print
 
-      - name: Azure Login (OIDC) for deploy
+          META_FILE="${{ env.PUBLISH_DIR }}/functions.metadata"
+          if [ -f "$META_FILE" ] && [ -s "$META_FILE" ]; then
+            echo "OK: Found functions.metadata (net8 isolated)."
+            head -c 200 "$META_FILE" >/dev/null 2>&1 || true
+          else
+            COUNT=$(find "${{ env.PUBLISH_DIR }}" -maxdepth 2 -name function.json | wc -l || true)
+            if [ "$COUNT" -gt 0 ]; then
+              echo "OK: Found $COUNT function.json file(s):"
+              find "${{ env.PUBLISH_DIR }}" -maxdepth 2 -name function.json -print
+            else
+              echo "::error::No functions.metadata or function.json found. Ensure you have at least one [Function] and Worker.Sdk analyzer in the csproj."
+              exit 1
+            fi
+          fi
+
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_7535D8B89C4F4B719148B58C8FF35484 }}
@@ -65,23 +76,4 @@ jobs:
         with:
           app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
           slot-name: 'Production'
-          package: '${{ env.PUBLISH_DIR }}'
-
-      # OPTIONAL: restart + re-sync triggers (requires login inside the CLI container)
-      - name: Azure Login (OIDC) for CLI
-        uses: azure/login@v2
-
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_7535D8B89C4F4B719148B58C8FF35484 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BEF8E29C85F848A199ECD77A7B703DD6 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_442E4247BBF54B478C9E86E6EFEB7D7F }}
-
-      - name: Restart & Re-sync triggers
-        uses: azure/cli@v2
-        with:
-          inlineScript: |
-            set -e
-            az account show --output none   # sanity check that login is present
-            az functionapp restart -g "${{ env.AZURE_RESOURCE_GROUP }}" -n "${{ env.AZURE_FUNCTIONAPP_NAME }}"
-            az rest -m POST -u "https://management.azure.com/subscriptions/${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_442E4247BBF54B478C9E86E6EFEB7D7F }}/resourceGroups/${{ env.AZURE_RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ env.AZURE_FUNCTIONAPP_NAME }}/syncfunctiontriggers?api-version=2022-03-01"
-
+          package: ${{ env.PUBLISH_DIR }}
