@@ -1,79 +1,187 @@
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace LookatDeezBackend.Extensions
 {
     public static class AuthHelper
     {
-        public static string? GetUserId(HttpRequestData req, ILogger? logger = null)
+        private static readonly HttpClient _httpClient = new HttpClient();
+        private static JsonWebKeySet? _cachedJwks;
+        private static DateTime _jwksExpiry = DateTime.MinValue;
+        
+        // Your B2C CIAM tenant details
+        private static string TenantId => Environment.GetEnvironmentVariable("AzureAd_TenantId") 
+            ?? throw new InvalidOperationException("AzureAd_TenantId not configured");
+        
+        private static string ClientId => Environment.GetEnvironmentVariable("AzureAd_ClientId") 
+            ?? throw new InvalidOperationException("AzureAd_ClientId not configured");
+
+        private static string JwksUri => $"https://lookatdeez.ciamlogin.com/{TenantId}/discovery/v2.0/keys";
+
+        public static async Task<ClaimsPrincipal?> ValidateTokenAsync(HttpRequestData req, ILogger? logger = null)
         {
             try
             {
-                // Try to get user ID from JWT token first
-                if (req.Headers.TryGetValues("Authorization", out var authHeaders))
+                // Extract Bearer token
+                if (!req.Headers.TryGetValues("Authorization", out var authHeaders))
                 {
-                    var authHeader = authHeaders.FirstOrDefault();
-                    if (authHeader?.StartsWith("Bearer ") == true)
-                    {
-                        var token = authHeader.Substring(7);
-                        var userId = ExtractUserIdFromJwt(token, logger);
-                        if (!string.IsNullOrEmpty(userId))
-                        {
-                            return userId;
-                        }
-                    }
+                    logger?.LogWarning("No Authorization header found");
+                    return null;
                 }
 
-                // Fallback to x-user-id header
-                if (req.Headers.TryGetValues("x-user-id", out var userIdHeaders))
+                var authHeader = authHeaders.FirstOrDefault();
+                if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
                 {
-                    var userId = userIdHeaders.FirstOrDefault();
-                    if (!string.IsNullOrEmpty(userId))
-                    {
-                        return userId;
-                    }
+                    logger?.LogWarning("Invalid Authorization header format");
+                    return null;
                 }
 
-                logger?.LogWarning("No user ID found in Authorization header or x-user-id header");
-                return null;
+                var token = authHeader.Substring(7);
+                return await ValidateJwtTokenAsync(token, logger);
             }
             catch (Exception ex)
             {
-                logger?.LogError(ex, "Error extracting user ID from request");
+                logger?.LogError(ex, "Error validating token");
                 return null;
             }
         }
 
-        private static string? ExtractUserIdFromJwt(string token, ILogger? logger = null)
+        public static async Task<string?> GetUserIdAsync(HttpRequestData req, ILogger? logger = null)
+        {
+            var principal = await ValidateTokenAsync(req, logger);
+            return GetUserIdFromPrincipal(principal, logger);
+        }
+
+        public static string? GetUserIdFromPrincipal(ClaimsPrincipal? principal, ILogger? logger = null)
+        {
+            if (principal == null) return null;
+
+            // Try different claim types for user ID
+            var userIdClaim = principal.Claims.FirstOrDefault(c => 
+                c.Type == "oid" ||      // Object ID (Microsoft preferred)
+                c.Type == "sub" ||      // Subject
+                c.Type == ClaimTypes.NameIdentifier);
+
+            var userId = userIdClaim?.Value;
+            if (!string.IsNullOrEmpty(userId))
+            {
+                logger?.LogInformation("Extracted user ID from validated token: {UserId}", userId);
+                return userId;
+            }
+
+            logger?.LogWarning("No user ID claim found in validated token");
+            return null;
+        }
+
+        private static async Task<ClaimsPrincipal?> ValidateJwtTokenAsync(string token, ILogger? logger = null)
         {
             try
             {
                 var handler = new JwtSecurityTokenHandler();
                 
-                if (handler.CanReadToken(token))
+                if (!handler.CanReadToken(token))
                 {
-                    var jsonToken = handler.ReadJwtToken(token);
-                    
-                    var userIdClaim = jsonToken.Claims.FirstOrDefault(c => 
-                        c.Type == "oid" ||      // Object ID (preferred for Microsoft)
-                        c.Type == "sub" ||      // Subject
-                        c.Type == "id" ||       // Sometimes used
-                        c.Type == ClaimTypes.NameIdentifier);
-
-                    if (userIdClaim != null)
-                    {
-                        logger?.LogInformation("Extracted user ID from JWT: {UserId}", userIdClaim.Value);
-                        return userIdClaim.Value;
-                    }
+                    logger?.LogWarning("Invalid JWT token format");
+                    return null;
                 }
 
-                return null;
+                // Get JWKS for token validation
+                var jwks = await GetJwksAsync(logger);
+                if (jwks == null)
+                {
+                    logger?.LogError("Failed to retrieve JWKS");
+                    return null;
+                }
+
+                // Read token to get key ID
+                var jsonToken = handler.ReadJwtToken(token);
+                var kid = jsonToken.Header.Kid;
+
+                if (string.IsNullOrEmpty(kid))
+                {
+                    logger?.LogWarning("JWT token missing key ID (kid)");
+                    return null;
+                }
+
+                // Find matching key
+                var key = jwks.Keys.FirstOrDefault(k => k.Kid == kid);
+                if (key == null)
+                {
+                    logger?.LogWarning("No matching key found for kid: {Kid}", kid);
+                    return null;
+                }
+
+                // Validate token
+                var validationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = $"https://lookatdeez.ciamlogin.com/{TenantId}/v2.0",
+                    
+                    ValidateAudience = true,
+                    ValidAudience = ClientId,
+                    
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = key,
+                    
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromMinutes(5),
+                    
+                    RequireExpirationTime = true,
+                    RequireSignedTokens = true
+                };
+
+                var result = await handler.ValidateTokenAsync(token, validationParameters);
+                
+                if (result.IsValid)
+                {
+                    logger?.LogInformation("JWT token validated successfully");
+                    return new ClaimsPrincipal(result.ClaimsIdentity);
+                }
+                else
+                {
+                    logger?.LogWarning("JWT token validation failed: {Exception}", result.Exception?.Message);
+                    return null;
+                }
             }
             catch (Exception ex)
             {
-                logger?.LogError(ex, "Error parsing JWT token");
+                logger?.LogError(ex, "Exception during JWT token validation");
+                return null;
+            }
+        }
+
+        private static async Task<JsonWebKeySet?> GetJwksAsync(ILogger? logger = null)
+        {
+            try
+            {
+                // Use cached JWKS if still valid
+                if (_cachedJwks != null && DateTime.UtcNow < _jwksExpiry)
+                {
+                    return _cachedJwks;
+                }
+
+                logger?.LogInformation("Fetching JWKS from {JwksUri}", JwksUri);
+                
+                var response = await _httpClient.GetAsync(JwksUri);
+                response.EnsureSuccessStatusCode();
+                
+                var json = await response.Content.ReadAsStringAsync();
+                var jwks = new JsonWebKeySet(json);
+                
+                // Cache for 1 hour
+                _cachedJwks = jwks;
+                _jwksExpiry = DateTime.UtcNow.AddHours(1);
+                
+                logger?.LogInformation("JWKS cached successfully with {KeyCount} keys", jwks.Keys.Count);
+                return jwks;
+            }
+            catch (Exception ex)
+            {
+                logger?.LogError(ex, "Failed to fetch JWKS from {JwksUri}", JwksUri);
                 return null;
             }
         }

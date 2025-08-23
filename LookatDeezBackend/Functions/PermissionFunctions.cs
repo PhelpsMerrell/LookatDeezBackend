@@ -1,4 +1,4 @@
-﻿using LookatDeezBackend.Data.Models.Requests;
+using LookatDeezBackend.Data.Models.Requests;
 using LookatDeezBackend.Data.Models;
 using LookatDeezBackend.Data.Services;
 using Microsoft.Extensions.Logging;
@@ -27,10 +27,11 @@ namespace LookatDeezBackend.Functions
         public async Task<HttpResponseData> SharePlaylist(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "playlists/{playlistId}/share")] HttpRequestData req)
         {
-            var userId = AuthHelper.GetUserId(req, _logger);
+            var userId = await AuthHelper.GetUserIdAsync(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
                 var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                 return unauthorizedResponse;
             }
 
@@ -39,6 +40,7 @@ namespace LookatDeezBackend.Functions
             if (!await _authService.CanManagePermissionsAsync(userId, playlistId))
             {
                 var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
+                await forbiddenResponse.WriteAsJsonAsync(new { error = "You do not have permission to manage this playlist" });
                 return forbiddenResponse;
             }
 
@@ -48,7 +50,7 @@ namespace LookatDeezBackend.Functions
             if (string.IsNullOrEmpty(request?.UserId))
             {
                 var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequestResponse.WriteStringAsync("UserId is required");
+                await badRequestResponse.WriteAsJsonAsync(new { error = "UserId is required" });
                 return badRequestResponse;
             }
 
@@ -56,7 +58,7 @@ namespace LookatDeezBackend.Functions
             if (existing != null)
             {
                 var conflictResponse = req.CreateResponse(HttpStatusCode.Conflict);
-                await conflictResponse.WriteStringAsync("Permission already exists");
+                await conflictResponse.WriteAsJsonAsync(new { error = "Permission already exists" });
                 return conflictResponse;
             }
 
@@ -80,10 +82,11 @@ namespace LookatDeezBackend.Functions
         public async Task<HttpResponseData> GetPlaylistPermissions(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "playlists/{playlistId}/permissions")] HttpRequestData req)
         {
-            var userId = AuthHelper.GetUserId(req, _logger);
+            var userId = await AuthHelper.GetUserIdAsync(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
                 var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                 return unauthorizedResponse;
             }
 
@@ -92,6 +95,7 @@ namespace LookatDeezBackend.Functions
             if (!await _authService.CanViewPlaylistAsync(userId, playlistId))
             {
                 var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
+                await forbiddenResponse.WriteAsJsonAsync(new { error = "You do not have permission to view this playlist" });
                 return forbiddenResponse;
             }
 
@@ -106,10 +110,11 @@ namespace LookatDeezBackend.Functions
         public async Task<HttpResponseData> RevokeAccess(
             [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "playlists/{playlistId}/permissions/{targetUserId}")] HttpRequestData req)
         {
-            var userId = AuthHelper.GetUserId(req, _logger);
+            var userId = await AuthHelper.GetUserIdAsync(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
                 var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                 return unauthorizedResponse;
             }
 
@@ -119,6 +124,7 @@ namespace LookatDeezBackend.Functions
             if (!await _authService.CanManagePermissionsAsync(userId, playlistId))
             {
                 var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
+                await forbiddenResponse.WriteAsJsonAsync(new { error = "You do not have permission to manage this playlist" });
                 return forbiddenResponse;
             }
 

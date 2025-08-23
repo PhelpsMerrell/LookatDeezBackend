@@ -58,10 +58,11 @@ namespace LookatDeezBackend.Functions
         public async Task<HttpResponseData> GetPlaylists(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "playlists")] HttpRequestData req)
         {
-            var userId = AuthHelper.GetUserId(req, _logger);
+            var userId = await AuthHelper.GetUserIdAsync(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
                 var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                 return unauthorizedResponse;
             }
 
@@ -125,10 +126,11 @@ namespace LookatDeezBackend.Functions
         public async Task<HttpResponseData> CreatePlaylist(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "playlists")] HttpRequestData req)
         {
-            var userId = AuthHelper.GetUserId(req, _logger);
+            var userId = await AuthHelper.GetUserIdAsync(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
                 var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                 return unauthorizedResponse;
             }
 
@@ -208,9 +210,13 @@ namespace LookatDeezBackend.Functions
     HttpRequestData req,
     string id)
         {
-            var userId = AuthHelper.GetUserId(req, _logger);
+            var userId = await AuthHelper.GetUserIdAsync(req, _logger);
             if (string.IsNullOrWhiteSpace(userId))
-                return req.CreateResponse(HttpStatusCode.Unauthorized);
+            {
+                var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
+                return unauthorizedResponse;
+            }
 
             // Authorization (your permissions container is PK'd on /playListId — good)
             var canView = await _authService.CanViewPlaylistAsync(userId, id);
@@ -274,10 +280,12 @@ namespace LookatDeezBackend.Functions
             [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "playlists/{id}")] HttpRequestData req,
             string id)
         {
-            var userId = AuthHelper.GetUserId(req, _logger);
+            var userId = await AuthHelper.GetUserIdAsync(req, _logger);
             if (string.IsNullOrEmpty(userId))
             {
-                return req.CreateResponse(HttpStatusCode.Unauthorized);
+                var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
+                return unauthorizedResponse;
             }
 
             try
@@ -377,26 +385,17 @@ namespace LookatDeezBackend.Functions
                 // Add debug logging
                 _logger.LogInformation($"AddItem called for playlist: {playlistId}");
                 
-                // Extract user ID from header
-                if (!req.Headers.TryGetValues("x-user-id", out var userIdValues) ||
-                    !userIdValues.Any())
+                // Get user ID from JWT token
+                var userId = await AuthHelper.GetUserIdAsync(req, _logger);
+                if (string.IsNullOrEmpty(userId))
                 {
-                    _logger.LogWarning("Missing x-user-id header");
+                    _logger.LogWarning("Unauthorized: Invalid or missing JWT token");
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteStringAsync("User ID header is required");
+                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                     return unauthorizedResponse;
                 }
-
-                var userId = userIdValues.First();
-                _logger.LogInformation($"User ID from header: {userId}");
                 
-                if (string.IsNullOrWhiteSpace(userId))
-                {
-                    _logger.LogWarning("Empty user ID");
-                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteStringAsync("User ID cannot be empty");
-                    return unauthorizedResponse;
-                }
+                _logger.LogInformation($"User ID from JWT: {userId}");
 
                 // Parse request body
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
@@ -589,12 +588,12 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                // Get user ID
-                var userId = AuthHelper.GetUserId(req, _logger);
+                // Get user ID from JWT token
+                var userId = await AuthHelper.GetUserIdAsync(req, _logger);
                 if (string.IsNullOrEmpty(userId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteStringAsync("User ID header is required");
+                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                     return unauthorizedResponse;
                 }
 
@@ -731,12 +730,12 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                // Get user ID
-                var userId = AuthHelper.GetUserId(req, _logger);
+                // Get user ID from JWT token
+                var userId = await AuthHelper.GetUserIdAsync(req, _logger);
                 if (string.IsNullOrEmpty(userId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteStringAsync("User ID header is required");
+                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                     return unauthorizedResponse;
                 }
 

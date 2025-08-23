@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -12,10 +12,10 @@ using LookatDeezBackend.Extensions;
 using System.ComponentModel.DataAnnotations;
 using System.Net;
 using System.Web;
-// Explicitly use System.Text.Json to avoid ambiguity
 using SystemTextJson = System.Text.Json;
 using System.Text.Json.Serialization;
 using Newtonsoft.Json;
+using System.Security.Claims;
 
 namespace LookatDeezBackend.Functions
 {
@@ -35,7 +35,7 @@ namespace LookatDeezBackend.Functions
             operationId: "createUser",
             tags: new[] { "Users" },
             Summary = "Create a new user",
-            Description = "Creates a new user account with email and display name validation."
+            Description = "Creates a new user account with JWT authentication required."
         )]
         [OpenApiRequestBody(
             contentType: "application/json",
@@ -58,79 +58,93 @@ namespace LookatDeezBackend.Functions
             Description = "The request body is invalid or missing required fields"
         )]
         [OpenApiResponseWithBody(
+            statusCode: HttpStatusCode.Unauthorized,
+            contentType: "application/json",
+            bodyType: typeof(ErrorResponse),
+            Summary = "Unauthorized",
+            Description = "Valid JWT token required"
+        )]
+        [OpenApiResponseWithBody(
             statusCode: HttpStatusCode.Conflict,
             contentType: "application/json",
             bodyType: typeof(ErrorResponse),
             Summary = "Email already exists",
             Description = "A user with this email address already exists"
         )]
-        [OpenApiResponseWithBody(
-            statusCode: HttpStatusCode.InternalServerError,
-            contentType: "application/json",
-            bodyType: typeof(ErrorResponse),
-            Summary = "Internal server error",
-            Description = "An unexpected error occurred"
-        )]
         public async Task<HttpResponseData> CreateUser(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "users")] HttpRequestData req)
         {
             try
             {
-                _logger.LogInformation("Creating new user");
+                _logger.LogInformation("Creating new user with JWT validation");
 
-                // Read and validate request body
-                string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-                if (string.IsNullOrWhiteSpace(requestBody))
+                // Validate JWT token
+                var principal = await AuthHelper.ValidateTokenAsync(req, _logger);
+                if (principal == null)
                 {
-                    _logger.LogWarning("Empty request body received");
-                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Request body is required" });
-                    return badResponse;
+                    _logger.LogWarning("Unauthorized: Invalid or missing JWT token");
+                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                    await unauthorizedResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Valid JWT token required" });
+                    return unauthorizedResponse;
                 }
 
-                CreateUserDto? createUserDto;
-                try
+                var microsoftUserId = AuthHelper.GetUserIdFromPrincipal(principal, _logger);
+                if (string.IsNullOrEmpty(microsoftUserId))
                 {
-                    // Use explicit System.Text.Json to avoid ambiguity
-                    createUserDto = SystemTextJson.JsonSerializer.Deserialize<CreateUserDto>(requestBody, new SystemTextJson.JsonSerializerOptions
+                    _logger.LogWarning("No user ID found in JWT token");
+                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                    await unauthorizedResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Invalid JWT token - no user ID" });
+                    return unauthorizedResponse;
+                }
+
+                // Extract user info from JWT
+                var email = principal.Claims.FirstOrDefault(c => c.Type == "email" || c.Type == "emails")?.Value;
+                var displayName = principal.Claims.FirstOrDefault(c => c.Type == "name")?.Value;
+
+                if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(displayName))
+                {
+                    // Fall back to request body if claims missing
+                    string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+                    if (!string.IsNullOrWhiteSpace(requestBody))
                     {
-                        PropertyNameCaseInsensitive = true
-                    });
+                        try
+                        {
+                            var createUserDto = SystemTextJson.JsonSerializer.Deserialize<CreateUserDto>(requestBody, 
+                                new SystemTextJson.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            
+                            email = email ?? createUserDto?.Email;
+                            displayName = displayName ?? createUserDto?.DisplayName;
+                        }
+                        catch (SystemTextJson.JsonException ex)
+                        {
+                            _logger.LogWarning(ex, "Invalid JSON in request body");
+                        }
+                    }
                 }
-                catch (SystemTextJson.JsonException ex)
+
+                if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(displayName))
                 {
-                    _logger.LogWarning(ex, "Invalid JSON in request body");
+                    _logger.LogWarning("Missing email or display name from JWT and request body");
                     var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Invalid JSON format" });
+                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Email and display name required" });
                     return badResponse;
                 }
 
-                if (createUserDto == null)
-                {
-                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Invalid request data" });
-                    return badResponse;
-                }
-
-                // Validate input
-                var validationResult = ValidateCreateUserDto(createUserDto);
-                if (!validationResult.IsValid)
-                {
-                    _logger.LogWarning("Validation failed: {Errors}", string.Join(", ", validationResult.Errors));
-                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new ValidationErrorResponse
-                    {
-                        Error = "Validation failed",
-                        Details = validationResult.Errors
-                    });
-                    return badResponse;
-                }
-
-                // Check if email already exists
-                var existingUser = await _userRepository.GetUserByEmailAsync(createUserDto.Email);
+                // Check if user already exists by Microsoft ID
+                var existingUser = await _userRepository.GetUserByIdAsync(microsoftUserId);
                 if (existingUser != null)
                 {
-                    _logger.LogWarning("User creation failed: Email {Email} already exists", createUserDto.Email);
+                    _logger.LogInformation("User already exists: {UserId}", microsoftUserId);
+                    var successResponse = req.CreateResponse(HttpStatusCode.OK);
+                    await successResponse.WriteAsJsonAsync(existingUser);
+                    return successResponse;
+                }
+
+                // Check if email already exists (different Microsoft account)
+                existingUser = await _userRepository.GetUserByEmailAsync(email);
+                if (existingUser != null)
+                {
+                    _logger.LogWarning("User creation failed: Email {Email} already exists with different Microsoft account", email);
                     var conflictResponse = req.CreateResponse(HttpStatusCode.Conflict);
                     await conflictResponse.WriteAsJsonAsync(new ErrorResponse
                     {
@@ -139,26 +153,22 @@ namespace LookatDeezBackend.Functions
                     return conflictResponse;
                 }
 
-                // Check if user is creating via Microsoft auth
-                var userIdFromToken = AuthHelper.GetUserId(req, _logger);
-                
                 // Create new user
                 var newUser = new User
                 {
-                    Id = userIdFromToken ?? Guid.NewGuid().ToString(),
-                    Email = createUserDto.Email.Trim().ToLowerInvariant(),
-                    DisplayName = createUserDto.DisplayName.Trim(),
+                    Id = microsoftUserId,  // Use Microsoft user ID as primary key
+                    Email = email.Trim().ToLowerInvariant(),
+                    DisplayName = displayName.Trim(),
                     CreatedAt = DateTime.UtcNow,
                     Friends = new List<string>()
                 };
 
                 var createdUser = await _userRepository.CreateUserAsync(newUser);
+                _logger.LogInformation("User created successfully with Microsoft ID: {UserId}", createdUser.Id);
 
-                _logger.LogInformation("User created successfully with ID: {UserId}", createdUser.Id);
-
-                var successResponse = req.CreateResponse(HttpStatusCode.Created);
-                await successResponse.WriteAsJsonAsync(createdUser);
-                return successResponse;
+                var response = req.CreateResponse(HttpStatusCode.Created);
+                await response.WriteAsJsonAsync(createdUser);
+                return response;
             }
             catch (Exception ex)
             {
@@ -184,27 +194,12 @@ namespace LookatDeezBackend.Functions
             Summary = "Search query",
             Description = "Search term for display name or email"
         )]
-        [OpenApiParameter(
-            name: "x-user-id",
-            In = ParameterLocation.Header,
-            Required = true,
-            Type = typeof(string),
-            Summary = "Requesting User ID",
-            Description = "The ID of the user making the request"
-        )]
         [OpenApiResponseWithBody(
             statusCode: HttpStatusCode.OK,
             contentType: "application/json",
             bodyType: typeof(List<User>),
             Summary = "Search results",
             Description = "Returns list of users matching the search term"
-        )]
-        [OpenApiResponseWithBody(
-            statusCode: HttpStatusCode.BadRequest,
-            contentType: "application/json",
-            bodyType: typeof(ErrorResponse),
-            Summary = "Invalid request",
-            Description = "Missing search query or x-user-id header"
         )]
         public async Task<HttpResponseData> SearchUsers(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/search")] HttpRequestData req)
@@ -213,14 +208,14 @@ namespace LookatDeezBackend.Functions
             {
                 _logger.LogInformation("Searching for users");
 
-                // Validate authentication
-                var requestingUserId = AuthHelper.GetUserId(req, _logger);
+                // Validate JWT authentication
+                var requestingUserId = await AuthHelper.GetUserIdAsync(req, _logger);
                 if (string.IsNullOrEmpty(requestingUserId))
                 {
-                    _logger.LogWarning("No valid authentication found");
-                    var badResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Authentication required" });
-                    return badResponse;
+                    _logger.LogWarning("Unauthorized: Invalid or missing JWT token");
+                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                    await unauthorizedResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Valid JWT token required" });
+                    return unauthorizedResponse;
                 }
 
                 // Get search query
@@ -236,11 +231,8 @@ namespace LookatDeezBackend.Functions
                     return badResponse;
                 }
 
-                _logger.LogInformation("Searching for users with term: {SearchTerm}", searchTerm);
-
                 // Search users
                 var users = await _userRepository.SearchUsersAsync(searchTerm.Trim());
-
                 _logger.LogInformation("Found {Count} users matching search term", users.Count);
 
                 var successResponse = req.CreateResponse(HttpStatusCode.OK);
@@ -271,41 +263,12 @@ namespace LookatDeezBackend.Functions
             Summary = "User ID",
             Description = "The unique identifier of the user"
         )]
-        [OpenApiParameter(
-            name: "x-user-id",
-            In = ParameterLocation.Header,
-            Required = true,
-            Type = typeof(string),
-            Summary = "Requesting User ID",
-            Description = "The ID of the user making the request"
-        )]
         [OpenApiResponseWithBody(
             statusCode: HttpStatusCode.OK,
             contentType: "application/json",
             bodyType: typeof(User),
             Summary = "User profile retrieved",
             Description = "Returns the user profile information"
-        )]
-        [OpenApiResponseWithBody(
-            statusCode: HttpStatusCode.BadRequest,
-            contentType: "application/json",
-            bodyType: typeof(ErrorResponse),
-            Summary = "Invalid request",
-            Description = "The user ID is invalid or missing x-user-id header"
-        )]
-        [OpenApiResponseWithBody(
-            statusCode: HttpStatusCode.NotFound,
-            contentType: "application/json",
-            bodyType: typeof(ErrorResponse),
-            Summary = "User not found",
-            Description = "No user exists with the specified ID"
-        )]
-        [OpenApiResponseWithBody(
-            statusCode: HttpStatusCode.InternalServerError,
-            contentType: "application/json",
-            bodyType: typeof(ErrorResponse),
-            Summary = "Internal server error",
-            Description = "An unexpected error occurred"
         )]
         public async Task<HttpResponseData> GetUserProfile(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/{userId}/profile")] HttpRequestData req,
@@ -318,23 +281,20 @@ namespace LookatDeezBackend.Functions
                 // Validate userId parameter
                 if (string.IsNullOrWhiteSpace(userId))
                 {
-                    _logger.LogWarning("Empty userId parameter");
                     var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
                     await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "User ID is required" });
                     return badResponse;
                 }
 
-                // Validate authentication (JWT or x-user-id header)
-                var requestingUserId = AuthHelper.GetUserId(req, _logger);
+                // Validate JWT authentication
+                var requestingUserId = await AuthHelper.GetUserIdAsync(req, _logger);
                 if (string.IsNullOrEmpty(requestingUserId))
                 {
-                    _logger.LogWarning("No valid authentication found");
-                    var badResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Authentication required" });
-                    return badResponse;
+                    _logger.LogWarning("Unauthorized: Invalid or missing JWT token");
+                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                    await unauthorizedResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Valid JWT token required" });
+                    return unauthorizedResponse;
                 }
-                _logger.LogInformation("Request from user: {RequestingUserId} for profile: {UserId}",
-                    requestingUserId, userId);
 
                 // Get user profile
                 var user = await _userRepository.GetUserByIdAsync(userId);
@@ -359,62 +319,9 @@ namespace LookatDeezBackend.Functions
                 return errorResponse;
             }
         }
-
-        private static ValidationResult ValidateCreateUserDto(CreateUserDto dto)
-        {
-            var errors = new List<string>();
-
-            // Validate email
-            if (string.IsNullOrWhiteSpace(dto.Email))
-            {
-                errors.Add("Email is required");
-            }
-            else
-            {
-                var emailAttribute = new EmailAddressAttribute();
-                if (!emailAttribute.IsValid(dto.Email))
-                {
-                    errors.Add("Email format is invalid");
-                }
-                else if (dto.Email.Length > 254) // RFC 5321 limit
-                {
-                    errors.Add("Email is too long (maximum 254 characters)");
-                }
-            }
-
-            // Validate display name
-            if (string.IsNullOrWhiteSpace(dto.DisplayName))
-            {
-                errors.Add("Display name is required");
-            }
-            else
-            {
-                var trimmedDisplayName = dto.DisplayName.Trim();
-                if (trimmedDisplayName.Length < 2)
-                {
-                    errors.Add("Display name must be at least 2 characters long");
-                }
-                else if (trimmedDisplayName.Length > 50)
-                {
-                    errors.Add("Display name must be no more than 50 characters long");
-                }
-            }
-
-            return new ValidationResult
-            {
-                IsValid = errors.Count == 0,
-                Errors = errors
-            };
-        }
     }
 
-    // Response models for OpenAPI documentation
-    public class ValidationResult
-    {
-        public bool IsValid { get; set; }
-        public List<string> Errors { get; set; } = new List<string>();
-    }
-
+    // Response models
     public class ErrorResponse
     {
         [System.Text.Json.Serialization.JsonPropertyName("error")]
@@ -422,37 +329,14 @@ namespace LookatDeezBackend.Functions
         public string Error { get; set; } = string.Empty;
     }
 
-    public class ValidationErrorResponse : ErrorResponse
+    public class CreateUserDto
     {
-        [System.Text.Json.Serialization.JsonPropertyName("details")]
-        [Newtonsoft.Json.JsonProperty("details")]
-        public List<string> Details { get; set; } = new List<string>();
-    }
-
-/// <summary>
-/// Data transfer object for creating a new user
-/// </summary>
-public class CreateUserDto
-    {
-        /// <summary>
-        /// The user's email address (required, must be valid email format)
-        /// </summary>
-        /// <example>john.doe@example.com</example>
         [JsonPropertyName("email")]
         [JsonProperty("email")]
-        [Required(ErrorMessage = "Email is required")]
-        [EmailAddress(ErrorMessage = "Email format is invalid")]
-        [StringLength(254, ErrorMessage = "Email is too long (maximum 254 characters)")]
         public string Email { get; set; } = string.Empty;
 
-        /// <summary>
-        /// The user's display name (required, 2-50 characters)
-        /// </summary>
-        /// <example>John Doe</example>
         [JsonPropertyName("displayName")]
         [JsonProperty("displayName")]
-        [Required(ErrorMessage = "Display name is required")]
-        [StringLength(50, MinimumLength = 2, ErrorMessage = "Display name must be between 2 and 50 characters")]
         public string DisplayName { get; set; } = string.Empty;
     }
 }

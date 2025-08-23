@@ -37,11 +37,11 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                var currentUserId = AuthHelper.GetUserId(req, _logger);
+                var currentUserId = await AuthHelper.GetUserIdAsync(req, _logger);
                 if (string.IsNullOrEmpty(currentUserId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteStringAsync("Missing x-user-id header");
+                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                     return unauthorizedResponse;
                 }
 
@@ -95,11 +95,11 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                var currentUserId = AuthHelper.GetUserId(req, _logger);
+                var currentUserId = await AuthHelper.GetUserIdAsync(req, _logger);
                 if (string.IsNullOrEmpty(currentUserId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteStringAsync("Missing x-user-id header");
+                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                     return unauthorizedResponse;
                 }
 
@@ -202,11 +202,11 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                var currentUserId = AuthHelper.GetUserId(req, _logger);
+                var currentUserId = await AuthHelper.GetUserIdAsync(req, _logger);
                 if (string.IsNullOrEmpty(currentUserId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteStringAsync("Missing x-user-id header");
+                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                     return unauthorizedResponse;
                 }
 
@@ -255,7 +255,7 @@ namespace LookatDeezBackend.Functions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting friend requests for user {UserId}", AuthHelper.GetUserId(req, _logger));
+                _logger.LogError(ex, "Error getting friend requests for user {UserId}", await AuthHelper.GetUserIdAsync(req, _logger));
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
                 await errorResponse.WriteStringAsync("An error occurred while retrieving friend requests");
                 return errorResponse;
@@ -276,11 +276,11 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                var currentUserId = AuthHelper.GetUserId(req, _logger);
+                var currentUserId = await AuthHelper.GetUserIdAsync(req, _logger);
                 if (string.IsNullOrEmpty(currentUserId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteStringAsync("Missing x-user-id header");
+                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                     return unauthorizedResponse;
                 }
 
@@ -389,11 +389,11 @@ namespace LookatDeezBackend.Functions
         {
             try
             {
-                var currentUserId = AuthHelper.GetUserId(req, _logger);
+                var currentUserId = await AuthHelper.GetUserIdAsync(req, _logger);
                 if (string.IsNullOrEmpty(currentUserId))
                 {
                     var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteStringAsync("Missing x-user-id header");
+                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
                     return unauthorizedResponse;
                 }
 
@@ -436,7 +436,7 @@ namespace LookatDeezBackend.Functions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error removing friend {FriendId} for user {UserId}", friendId, AuthHelper.GetUserId(req, _logger));
+                _logger.LogError(ex, "Error removing friend {FriendId} for user {UserId}", friendId, await AuthHelper.GetUserIdAsync(req, _logger));
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
                 await errorResponse.WriteStringAsync("An error occurred while removing friend");
                 return errorResponse;
