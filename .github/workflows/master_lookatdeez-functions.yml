@@ -1,53 +1,93 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/azure/functions-action
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-
-name: Build and deploy dotnet core project to Azure Function App - lookatdeez-functions
+name: Deploy LookatDeez Functions (.NET 8)
 
 on:
   push:
-    branches:
-      - master
+    branches: [ master ]
   workflow_dispatch:
 
 env:
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.' # set this to the path to your web app project, defaults to the repository root
-  DOTNET_VERSION: '10.0.x' # set this to the dotnet version to use
+  DOTNET_VERSION: '8.0.204'
+  PROJECT_FILE: 'LookatDeezBackend/LookatDeezBackend.csproj'
+  PUBLISH_DIR: 'published'
+  AZURE_FUNCTIONAPP_NAME: 'lookatdeez-functions'
+  AZURE_RESOURCE_GROUP: 'LookatDeez'   # your RG name
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
+      id-token: write
+      contents: read
 
     steps:
-      - name: 'Checkout GitHub Action'
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup DotNet ${{ env.DOTNET_VERSION }} Environment
-        uses: actions/setup-dotnet@v1
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: 'Resolve Project Dependencies Using Dotnet'
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj','**/packages.lock.json') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      # IMPORTANT: publish for linux-x64 and NOT self-contained
+      - name: Restore & Publish (linux-x64, framework-dependent)
         shell: bash
         run: |
-          pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
-          dotnet build --configuration Release --output ./output
-          popd
-      
-      - name: Login to Azure
+          set -euo pipefail
+          dotnet --version
+          dotnet restore "${{ env.PROJECT_FILE }}"
+          dotnet publish "${{ env.PROJECT_FILE }}" \
+            -c Release \
+            -o "${{ env.PUBLISH_DIR }}" \
+            -r linux-x64 --self-contained false
+
+      - name: Verify Functions package layout (.NET 8 isolated)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Publish dir contents:" && ls -la "${{ env.PUBLISH_DIR }}"
+          test -f "${{ env.PUBLISH_DIR }}/host.json" || (echo "::error::host.json missing" && exit 1)
+          if [ -f "${{ env.PUBLISH_DIR }}/functions.metadata" ] && [ -s "${{ env.PUBLISH_DIR }}/functions.metadata" ]; then
+            echo "OK: functions.metadata present (isolated worker)."
+          else
+            COUNT=$(find "${{ env.PUBLISH_DIR }}" -maxdepth 2 -name function.json | wc -l || true)
+            [ "$COUNT" -gt 0 ] && echo "OK: function.json file(s) present." || (echo "::error::No functions.metadata or function.json found." && exit 1)
+          fi
+
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_7535D8B89C4F4B719148B58C8FF35484 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BEF8E29C85F848A199ECD77A7B703DD6 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_442E4247BBF54B478C9E86E6EFEB7D7F }}
 
-      - name: 'Run Azure Functions Action'
+      - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
-        id: fa
         with:
-          app-name: 'lookatdeez-functions'
+          app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
           slot-name: 'Production'
-          package: '${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/output'
-          
+          package: ${{ env.PUBLISH_DIR }}
+
+      # Ensure worker indexing is on, then restart & re-sync triggers
+      - name: Azure Login (OIDC) for CLI
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_7535D8B89C4F4B719148B58C8FF35484 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BEF8E29C85F848A199ECD77A7B703DD6 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_442E4247BBF54B478C9E86E6EFEB7D7F }}
+
+      - name: Enable worker indexing + restart + sync triggers
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            set -e
+            az account show --output none
+            az functionapp config appsettings set -g "${{ env.AZURE_RESOURCE_GROUP }}" -n "${{ env.AZURE_FUNCTIONAPP_NAME }}" --settings AzureWebJobsFeatureFlags=EnableWorkerIndexing
+            az functionapp restart -g "${{ env.AZURE_RESOURCE_GROUP }}" -n "${{ env.AZURE_FUNCTIONAPP_NAME }}"
+            az rest -m POST -u "https://management.azure.com/subscriptions/${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_442E4247BBF54B478C9E86E6EFEB7D7F }}/resourceGroups/${{ env.AZURE_RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ env.AZURE_FUNCTIONAPP_NAME }}/syncfunctiontriggers?api-version=2022-03-01"
