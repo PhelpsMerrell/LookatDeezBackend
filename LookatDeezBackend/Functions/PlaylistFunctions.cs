@@ -31,41 +31,11 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("GetPlaylists")]
-        // add directly above your GetPlaylists method
-        [OpenApiOperation(
-            operationId: "GetPlaylists",
-            tags: new[] { "Playlists" },
-            Summary = "List the current user's playlists",
-            Description = "Returns playlists owned by the user and playlists shared with the user."
-        )]
-        [OpenApiParameter(
-            name: "x-user-id",
-            In = ParameterLocation.Header,
-            Required = true,
-            Type = typeof(string),
-            Summary = "Temporary dev header identifying the user (replace with Azure AD B2C later)."
-        )]
-        [OpenApiResponseWithBody(
-            statusCode: HttpStatusCode.OK,
-            contentType: "application/json",
-            bodyType: typeof(PlaylistsEnvelope),
-            Description = "Owned and shared playlists."
-        )]
-        [OpenApiResponseWithoutBody(
-            statusCode: HttpStatusCode.Unauthorized,
-            Description = "Missing or invalid user id."
-        )]
         public async Task<HttpResponseData> GetPlaylists(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "playlists")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "playlists")] HttpRequestData req,
+            FunctionContext context)
         {
-            var userId = await AuthHelper.GetUserIdAsync(req, _logger);
-            if (string.IsNullOrEmpty(userId))
-            {
-                var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
-                return unauthorizedResponse;
-            }
-
+            var userId = context.GetUserId();
             var owned = await _cosmosService.GetUserPlaylistsAsync(userId);
             var shared = await _cosmosService.GetSharedPlaylistsAsync(userId);
 
@@ -89,51 +59,11 @@ namespace LookatDeezBackend.Functions
 
 
         [Function("CreatePlaylist")]
-        [OpenApiOperation(
-            operationId: "CreatePlaylist",
-            tags: new[] { "Playlists" },
-            Summary = "Create a new playlist",
-            Description = "Creates a playlist for the current user."
-        )]
-        [OpenApiParameter(
-            name: "x-user-id",
-            In = ParameterLocation.Header,
-            Required = true,
-            Type = typeof(string),
-            Summary = "Dev-only user id header (swap to B2C later)."
-        )]
-        [OpenApiRequestBody(
-            contentType: "application/json",
-            bodyType: typeof(CreatePlaylistRequest),
-            Required = true,
-            Description = "Payload with title and optional isPublic flag."
-        )]
-        [OpenApiResponseWithBody(
-            statusCode: HttpStatusCode.Created,
-            contentType: "application/json",
-            bodyType: typeof(Playlist),
-            Description = "The created playlist."
-        )]
-        [OpenApiResponseWithoutBody(
-            statusCode: HttpStatusCode.BadRequest,
-            Description = "Missing/invalid title."
-        )]
-        [OpenApiResponseWithoutBody(
-            statusCode: HttpStatusCode.Unauthorized,
-            Description = "Missing x-user-id."
-        )]
-
         public async Task<HttpResponseData> CreatePlaylist(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "playlists")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "playlists")] HttpRequestData req,
+            FunctionContext context)
         {
-            var userId = await AuthHelper.GetUserIdAsync(req, _logger);
-            if (string.IsNullOrEmpty(userId))
-            {
-                var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
-                return unauthorizedResponse;
-            }
-
+            var userId = context.GetUserId();
             var body = await new StreamReader(req.Body).ReadToEndAsync();
             var request = JsonConvert.DeserializeObject<CreatePlaylistRequest>(body);
 
@@ -145,19 +75,17 @@ namespace LookatDeezBackend.Functions
             }
 
             var now = DateTime.UtcNow;
-
             var playlist = new Playlist
             {
-                Id = Guid.NewGuid().ToString("n"),   // required by Cosmos
+                Id = Guid.NewGuid().ToString("n"),
                 Title = request.Title.Trim(),
-                OwnerId = userId,                          // must match container PK path (/ownerId)
+                OwnerId = userId,
                 IsPublic = request.IsPublic,
                 CreatedAt = now,
                 UpdatedAt = now
             };
 
             var created = await _cosmosService.CreatePlaylistAsync(playlist);
-
             var response = req.CreateResponse(HttpStatusCode.Created);
             response.Headers.Add("Location", $"/api/playlists/{created.Id}");
             await response.WriteAsJsonAsync(created);
@@ -208,27 +136,18 @@ namespace LookatDeezBackend.Functions
         public async Task<HttpResponseData> GetPlaylist(
     [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "playlists/{id}")]
     HttpRequestData req,
-    string id)
+    string id,
+    FunctionContext context)
         {
-            var userId = await AuthHelper.GetUserIdAsync(req, _logger);
-            if (string.IsNullOrWhiteSpace(userId))
-            {
-                var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
-                return unauthorizedResponse;
-            }
-
-            // Authorization (your permissions container is PK'd on /playListId — good)
+            var userId = context.GetUserId();
             var canView = await _authService.CanViewPlaylistAsync(userId, id);
             if (!canView)
                 return req.CreateResponse(HttpStatusCode.Forbidden);
 
-            // Fetch the doc (see two service options below)
-            var playlist = await _cosmosService.GetPlaylistByIdAsync(id); // cross-partition fallback
+            var playlist = await _cosmosService.GetPlaylistByIdAsync(id);
             if (playlist is null)
                 return req.CreateResponse(HttpStatusCode.NotFound);
 
-            // Ensure items are ordered correctly
             if (playlist.Items != null && playlist.Items.Any())
             {
                 playlist.Items = playlist.Items.OrderBy(item => item.Order).ToList();

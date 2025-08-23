@@ -26,26 +26,14 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("GetUserFriends")]
-        [OpenApiOperation(operationId: "GetUserFriends", tags: ["Friends"])]
-        [OpenApiParameter(name: "userId", In = ParameterLocation.Path, Required = true, Type = typeof(string))]
-        [OpenApiParameter(name: "x-user-id", In = ParameterLocation.Header, Required = true, Type = typeof(string))]
-        [OpenApiResponseWithBody(statusCode: HttpStatusCode.OK, contentType: "application/json", bodyType: typeof(List<FriendResponse>))]
-        [OpenApiResponseWithBody(statusCode: HttpStatusCode.NotFound, contentType: "application/json", bodyType: typeof(object))]
         public async Task<HttpResponseData> GetUserFriends(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/{userId}/friends")] HttpRequestData req,
-            string userId)
+            string userId,
+            FunctionContext context)
         {
             try
             {
-                var currentUserId = await AuthHelper.GetUserIdAsync(req, _logger);
-                if (string.IsNullOrEmpty(currentUserId))
-                {
-                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
-                    return unauthorizedResponse;
-                }
-
-                // Get the user to fetch their friends list
+                var currentUserId = context.GetUserId();
                 var user = await _cosmosService.GetUserByIdAsync(userId);
                 if (user == null)
                 {
@@ -54,7 +42,6 @@ namespace LookatDeezBackend.Functions
                     return notFoundResponse;
                 }
 
-                // Get detailed friend information
                 var friends = new List<FriendResponse>();
                 foreach (var friendId in user.Friends)
                 {
@@ -66,7 +53,7 @@ namespace LookatDeezBackend.Functions
                             Id = friend.Id,
                             DisplayName = friend.DisplayName,
                             Email = friend.Email,
-                            FriendsSince = friend.CreatedAt // This could be enhanced to track actual friendship date
+                            FriendsSince = friend.CreatedAt
                         });
                     }
                 }
@@ -85,24 +72,13 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("SendFriendRequest")]
-        [OpenApiOperation(operationId: "SendFriendRequest", tags: ["Friends"])]
-        [OpenApiParameter(name: "x-user-id", In = ParameterLocation.Header, Required = true, Type = typeof(string))]
-        [OpenApiRequestBody("application/json", typeof(CreateFriendRequestRequest))]
-        [OpenApiResponseWithBody(statusCode: HttpStatusCode.Created, contentType: "application/json", bodyType: typeof(FriendRequestResponse))]
-        [OpenApiResponseWithBody(statusCode: HttpStatusCode.BadRequest, contentType: "application/json", bodyType: typeof(object))]
         public async Task<HttpResponseData> SendFriendRequest(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "friend-requests")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "friend-requests")] HttpRequestData req,
+            FunctionContext context)
         {
             try
             {
-                var currentUserId = await AuthHelper.GetUserIdAsync(req, _logger);
-                if (string.IsNullOrEmpty(currentUserId))
-                {
-                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
-                    return unauthorizedResponse;
-                }
-
+                var currentUserId = context.GetUserId();
                 var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 var createRequest = JsonConvert.DeserializeObject<CreateFriendRequestRequest>(requestBody);
 
@@ -113,7 +89,6 @@ namespace LookatDeezBackend.Functions
                     return badRequestResponse;
                 }
 
-                // Prevent sending friend request to yourself
                 if (currentUserId == createRequest.ToUserId)
                 {
                     var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
@@ -121,7 +96,6 @@ namespace LookatDeezBackend.Functions
                     return badRequestResponse;
                 }
 
-                // Check if target user exists
                 var targetUser = await _cosmosService.GetUserByIdAsync(createRequest.ToUserId);
                 if (targetUser == null)
                 {
@@ -130,7 +104,6 @@ namespace LookatDeezBackend.Functions
                     return notFoundResponse;
                 }
 
-                // Check if users are already friends
                 var currentUser = await _cosmosService.GetUserByIdAsync(currentUserId);
                 if (currentUser?.Friends?.Contains(createRequest.ToUserId) == true)
                 {
@@ -139,7 +112,6 @@ namespace LookatDeezBackend.Functions
                     return badRequestResponse;
                 }
 
-                // Check if there's already a pending request in either direction
                 var existingRequest = await _cosmosService.GetExistingRequestAsync(currentUserId, createRequest.ToUserId);
                 var reverseRequest = await _cosmosService.GetExistingRequestAsync(createRequest.ToUserId, currentUserId);
 
@@ -157,7 +129,6 @@ namespace LookatDeezBackend.Functions
                     return badRequestResponse;
                 }
 
-                // Create friend request
                 var friendRequest = new FriendRequest
                 {
                     FromUserId = currentUserId,
@@ -167,7 +138,6 @@ namespace LookatDeezBackend.Functions
 
                 var createdRequest = await _cosmosService.CreateFriendRequestAsync(friendRequest);
 
-                // Build response
                 var responseData = new FriendRequestResponse
                 {
                     Id = createdRequest.Id,

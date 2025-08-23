@@ -1,5 +1,6 @@
 using LookatDeezBackend.Data.Repositories;
 using LookatDeezBackend.Data.Services;
+using LookatDeezBackend.Middleware;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -7,7 +8,11 @@ using Microsoft.Azure.Cosmos;
 using LookatDeezBackend.Extensions;
 
 var host = new HostBuilder()
-    .ConfigureFunctionsWorkerDefaults()
+    .ConfigureFunctionsWorkerDefaults(builder =>
+    {
+        // Register JWT authentication middleware
+        builder.UseMiddleware<JwtAuthenticationMiddleware>();
+    })
     .ConfigureServices(services =>
     {
         // Application Insights (isolated)

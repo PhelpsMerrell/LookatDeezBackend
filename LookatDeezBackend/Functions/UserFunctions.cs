@@ -31,120 +31,47 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("CreateUser")]
-        [OpenApiOperation(
-            operationId: "createUser",
-            tags: new[] { "Users" },
-            Summary = "Create a new user",
-            Description = "Creates a new user account with JWT authentication required."
-        )]
-        [OpenApiRequestBody(
-            contentType: "application/json",
-            bodyType: typeof(CreateUserDto),
-            Required = true,
-            Description = "User creation data"
-        )]
-        [OpenApiResponseWithBody(
-            statusCode: HttpStatusCode.Created,
-            contentType: "application/json",
-            bodyType: typeof(User),
-            Summary = "User created successfully",
-            Description = "Returns the created user object"
-        )]
-        [OpenApiResponseWithBody(
-            statusCode: HttpStatusCode.BadRequest,
-            contentType: "application/json",
-            bodyType: typeof(ErrorResponse),
-            Summary = "Invalid request",
-            Description = "The request body is invalid or missing required fields"
-        )]
-        [OpenApiResponseWithBody(
-            statusCode: HttpStatusCode.Unauthorized,
-            contentType: "application/json",
-            bodyType: typeof(ErrorResponse),
-            Summary = "Unauthorized",
-            Description = "Valid JWT token required"
-        )]
-        [OpenApiResponseWithBody(
-            statusCode: HttpStatusCode.Conflict,
-            contentType: "application/json",
-            bodyType: typeof(ErrorResponse),
-            Summary = "Email already exists",
-            Description = "A user with this email address already exists"
-        )]
         public async Task<HttpResponseData> CreateUser(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "users")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "users")] HttpRequestData req,
+            FunctionContext context)
         {
             try
             {
-                _logger.LogInformation("Creating new user with JWT validation");
+                var microsoftUserId = context.GetUserId();
 
-                // Validate JWT token
-                var principal = await AuthHelper.ValidateTokenAsync(req, _logger);
-                if (principal == null)
+                string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+                string email = "unknown@example.com";
+                string displayName = "User";
+                
+                if (!string.IsNullOrWhiteSpace(requestBody))
                 {
-                    _logger.LogWarning("Unauthorized: Invalid or missing JWT token");
-                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Valid JWT token required" });
-                    return unauthorizedResponse;
-                }
-
-                var microsoftUserId = AuthHelper.GetUserIdFromPrincipal(principal, _logger);
-                if (string.IsNullOrEmpty(microsoftUserId))
-                {
-                    _logger.LogWarning("No user ID found in JWT token");
-                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Invalid JWT token - no user ID" });
-                    return unauthorizedResponse;
-                }
-
-                // Extract user info from JWT
-                var email = principal.Claims.FirstOrDefault(c => c.Type == "email" || c.Type == "emails")?.Value;
-                var displayName = principal.Claims.FirstOrDefault(c => c.Type == "name")?.Value;
-
-                if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(displayName))
-                {
-                    // Fall back to request body if claims missing
-                    string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-                    if (!string.IsNullOrWhiteSpace(requestBody))
+                    try
                     {
-                        try
-                        {
-                            var createUserDto = SystemTextJson.JsonSerializer.Deserialize<CreateUserDto>(requestBody, 
-                                new SystemTextJson.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                            
-                            email = email ?? createUserDto?.Email;
-                            displayName = displayName ?? createUserDto?.DisplayName;
-                        }
-                        catch (SystemTextJson.JsonException ex)
-                        {
-                            _logger.LogWarning(ex, "Invalid JSON in request body");
-                        }
+                        var createUserDto = SystemTextJson.JsonSerializer.Deserialize<CreateUserDto>(requestBody, 
+                            new SystemTextJson.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        
+                        if (!string.IsNullOrEmpty(createUserDto?.Email))
+                            email = createUserDto.Email;
+                        if (!string.IsNullOrEmpty(createUserDto?.DisplayName))
+                            displayName = createUserDto.DisplayName;
+                    }
+                    catch (SystemTextJson.JsonException ex)
+                    {
+                        _logger.LogWarning(ex, "Invalid JSON in request body, using defaults");
                     }
                 }
 
-                if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(displayName))
-                {
-                    _logger.LogWarning("Missing email or display name from JWT and request body");
-                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Email and display name required" });
-                    return badResponse;
-                }
-
-                // Check if user already exists by Microsoft ID
                 var existingUser = await _userRepository.GetUserByIdAsync(microsoftUserId);
                 if (existingUser != null)
                 {
-                    _logger.LogInformation("User already exists: {UserId}", microsoftUserId);
                     var successResponse = req.CreateResponse(HttpStatusCode.OK);
                     await successResponse.WriteAsJsonAsync(existingUser);
                     return successResponse;
                 }
 
-                // Check if email already exists (different Microsoft account)
                 existingUser = await _userRepository.GetUserByEmailAsync(email);
                 if (existingUser != null)
                 {
-                    _logger.LogWarning("User creation failed: Email {Email} already exists with different Microsoft account", email);
                     var conflictResponse = req.CreateResponse(HttpStatusCode.Conflict);
                     await conflictResponse.WriteAsJsonAsync(new ErrorResponse
                     {
@@ -153,10 +80,9 @@ namespace LookatDeezBackend.Functions
                     return conflictResponse;
                 }
 
-                // Create new user
                 var newUser = new User
                 {
-                    Id = microsoftUserId,  // Use Microsoft user ID as primary key
+                    Id = microsoftUserId,
                     Email = email.Trim().ToLowerInvariant(),
                     DisplayName = displayName.Trim(),
                     CreatedAt = DateTime.UtcNow,
@@ -164,8 +90,6 @@ namespace LookatDeezBackend.Functions
                 };
 
                 var createdUser = await _userRepository.CreateUserAsync(newUser);
-                _logger.LogInformation("User created successfully with Microsoft ID: {UserId}", createdUser.Id);
-
                 var response = req.CreateResponse(HttpStatusCode.Created);
                 await response.WriteAsJsonAsync(createdUser);
                 return response;
