@@ -20,10 +20,12 @@ namespace LookatDeezBackend.Extensions
         private static string ClientId => Environment.GetEnvironmentVariable("AzureAd_ClientId") 
             ?? throw new InvalidOperationException("AzureAd_ClientId not configured");
 
-        private static string JwksUri => $"https://login.microsoftonline.com/{TenantId}/discovery/v2.0/keys";
+        private static string JwksUri => $"https://login.microsoftonline.com/{TenantId}/discovery/keys";
         
-        // Alternative: try the common endpoint
-        private static string CommonJwksUri => "https://login.microsoftonline.com/common/discovery/v2.0/keys";
+        // Alternative endpoints
+        private static string JwksUriV2 => $"https://login.microsoftonline.com/{TenantId}/discovery/v2.0/keys";
+        private static string CommonJwksUri => "https://login.microsoftonline.com/common/discovery/keys";
+        private static string CommonJwksUriV2 => "https://login.microsoftonline.com/common/discovery/v2.0/keys";
 
         public static async Task<ClaimsPrincipal?> ValidateTokenAsync(HttpRequestData req, ILogger? logger = null)
         {
@@ -200,8 +202,8 @@ namespace LookatDeezBackend.Extensions
                     return _cachedJwks;
                 }
 
-                // Try tenant-specific endpoint first
-                var endpoints = new[] { JwksUri, CommonJwksUri };
+                // Try tenant-specific v1.0 endpoint first (for your token type)
+                var endpoints = new[] { JwksUri, JwksUriV2, CommonJwksUri, CommonJwksUriV2 };
                 
                 foreach (var endpoint in endpoints)
                 {
