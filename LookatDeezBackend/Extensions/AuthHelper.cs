@@ -84,6 +84,7 @@ namespace LookatDeezBackend.Extensions
         {
             try
             {
+                logger?.LogInformation("Starting JWT token validation");
                 var handler = new JwtSecurityTokenHandler();
                 
                 if (!handler.CanReadToken(token))
@@ -91,6 +92,12 @@ namespace LookatDeezBackend.Extensions
                     logger?.LogWarning("Invalid JWT token format");
                     return null;
                 }
+
+                // Read token to get issuer and audience for debugging
+                var jsonToken = handler.ReadJwtToken(token);
+                logger?.LogInformation("Token issuer: {Issuer}", jsonToken.Issuer);
+                logger?.LogInformation("Token audiences: {Audiences}", string.Join(", ", jsonToken.Audiences));
+                logger?.LogInformation("Token key ID: {Kid}", jsonToken.Header.Kid);
 
                 // Get JWKS for token validation
                 var jwks = await GetJwksAsync(logger);
@@ -100,10 +107,7 @@ namespace LookatDeezBackend.Extensions
                     return null;
                 }
 
-                // Read token to get key ID
-                var jsonToken = handler.ReadJwtToken(token);
                 var kid = jsonToken.Header.Kid;
-
                 if (string.IsNullOrEmpty(kid))
                 {
                     logger?.LogWarning("JWT token missing key ID (kid)");
@@ -114,32 +118,43 @@ namespace LookatDeezBackend.Extensions
                 var key = jwks.Keys.FirstOrDefault(k => k.Kid == kid);
                 if (key == null)
                 {
-                    logger?.LogWarning("No matching key found for kid: {Kid}", kid);
+                    logger?.LogWarning("No matching key found for kid: {Kid}. Available kids: {AvailableKids}", 
+                        kid, string.Join(", ", jwks.Keys.Select(k => k.Kid)));
                     return null;
                 }
+
+                logger?.LogInformation("Found matching key for kid: {Kid}", kid);
+
+                // Log what we're validating against
+                var validIssuers = new[] 
+                {
+                    $"https://sts.windows.net/{TenantId}/",  // Standard Azure AD
+                    $"https://login.microsoftonline.com/{TenantId}/v2.0",
+                    $"https://lookatdeez.ciamlogin.com/{TenantId}/v2.0",
+                    $"https://lookatdeez.ciamlogin.com/{TenantId}/",
+                    "https://login.microsoftonline.com/common/v2.0",  // Common endpoint
+                    "https://login.microsoftonline.com/f8c9ea6d-89ab-4b1e-97db-dc03a426ec60/v2.0"  // Your specific tenant v2
+                };
+                
+                var validAudiences = new[] 
+                {
+                    ClientId, 
+                    "api://" + ClientId,
+                    "00000003-0000-0000-c000-000000000000", // Microsoft Graph - ACCEPT THIS
+                    "https://graph.microsoft.com"
+                };
+                
+                logger?.LogInformation("Valid issuers: {ValidIssuers}", string.Join(", ", validIssuers));
+                logger?.LogInformation("Valid audiences: {ValidAudiences}", string.Join(", ", validAudiences));
 
                 // Validate token
                 var validationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
-                    ValidIssuers = new[] 
-                    {
-                        $"https://sts.windows.net/{TenantId}/",  // Standard Azure AD
-                        $"https://login.microsoftonline.com/{TenantId}/v2.0",
-                        $"https://lookatdeez.ciamlogin.com/{TenantId}/v2.0",
-                        $"https://lookatdeez.ciamlogin.com/{TenantId}/",
-                        "https://login.microsoftonline.com/common/v2.0",  // Common endpoint
-                        "https://login.microsoftonline.com/f8c9ea6d-89ab-4b1e-97db-dc03a426ec60/v2.0"  // Your specific tenant v2
-                    },
+                    ValidIssuers = validIssuers,
                     
                     ValidateAudience = true,
-                    ValidAudiences = new[] 
-                    {
-                        ClientId, 
-                        "api://" + ClientId,
-                        "00000003-0000-0000-c000-000000000000", // Microsoft Graph - ACCEPT THIS
-                        "https://graph.microsoft.com"
-                    },
+                    ValidAudiences = validAudiences,
                     
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = key,
@@ -161,6 +176,10 @@ namespace LookatDeezBackend.Extensions
                 else
                 {
                     logger?.LogWarning("JWT token validation failed: {Exception}", result.Exception?.Message);
+                    if (result.Exception?.InnerException != null)
+                    {
+                        logger?.LogWarning("Inner exception: {InnerException}", result.Exception.InnerException.Message);
+                    }
                     return null;
                 }
             }
