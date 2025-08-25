@@ -20,7 +20,7 @@ namespace LookatDeezBackend.Extensions
         private static string ClientId => Environment.GetEnvironmentVariable("AzureAd_ClientId") 
             ?? throw new InvalidOperationException("AzureAd_ClientId not configured");
 
-        private static string JwksUri => $"https://lookatdeez.ciamlogin.com/{TenantId}/discovery/v2.0/keys";
+        private static string JwksUri => $"https://lookatdeez.ciamlogin.com/{TenantId}/discovery/keys";
 
         public static async Task<ClaimsPrincipal?> ValidateTokenAsync(HttpRequestData req, ILogger? logger = null)
         {
@@ -119,10 +119,14 @@ namespace LookatDeezBackend.Extensions
                 var validationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
-                    ValidIssuer = $"https://lookatdeez.ciamlogin.com/{TenantId}/v2.0",
+                    ValidIssuers = new[] 
+                    {
+                        $"https://lookatdeez.ciamlogin.com/{TenantId}/v2.0",
+                        $"https://lookatdeez.ciamlogin.com/{TenantId}/"
+                    },
                     
                     ValidateAudience = true,
-                    ValidAudience = ClientId,
+                    ValidAudiences = new[] { ClientId, "api://" + ClientId },
                     
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = key,

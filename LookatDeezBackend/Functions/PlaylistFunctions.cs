@@ -1,10 +1,11 @@
 ﻿using LookatDeezBackend.Data.Models.Requests;
 using LookatDeezBackend.Data.Models;
 using LookatDeezBackend.Data.Services;
+using LookatDeezBackend.Extensions;
+using LookatDeezBackend.Helpers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
-using LookatDeezBackend.Extensions;
 using Newtonsoft.Json;
 using System.Net;
 using System.Text;
@@ -296,25 +297,33 @@ namespace LookatDeezBackend.Functions
             Description = "Playlist not found."
         )]
         public async Task<HttpResponseData> AddItem(
-    [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "playlists/{playlistId}/items")] HttpRequestData req,
-    string playlistId)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", "options", Route = "playlists/{playlistId}/items")] HttpRequestData req,
+            string playlistId,
+            FunctionContext context)
         {
+            // Handle CORS preflight requests
+            if (req.Method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase))
+            {
+                return await CorsHelper.HandlePreflightRequest(req);
+            }
+
             try
             {
                 // Add debug logging
                 _logger.LogInformation($"AddItem called for playlist: {playlistId}");
                 
-                // Get user ID from JWT token
-                var userId = await AuthHelper.GetUserIdAsync(req, _logger);
-                if (string.IsNullOrEmpty(userId))
+                // Get user ID from context (set by middleware)
+                var userId = context.GetUserId();
+                _logger.LogInformation($"User ID from context: {userId}");
+
+                // Validate playlist ID
+                if (string.IsNullOrWhiteSpace(playlistId))
                 {
-                    _logger.LogWarning("Unauthorized: Invalid or missing JWT token");
-                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
-                    return unauthorizedResponse;
+                    _logger.LogWarning("Empty playlist ID");
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
+                    await badRequestResponse.WriteStringAsync("Playlist ID is required");
+                    return badRequestResponse;
                 }
-                
-                _logger.LogInformation($"User ID from JWT: {userId}");
 
                 // Parse request body
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
@@ -323,7 +332,7 @@ namespace LookatDeezBackend.Functions
                 if (string.IsNullOrWhiteSpace(requestBody))
                 {
                     _logger.LogWarning("Empty request body");
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("Request body is required");
                     return badRequestResponse;
                 }
@@ -338,7 +347,7 @@ namespace LookatDeezBackend.Functions
                 }
                 catch (System.Text.Json.JsonException ex)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync($"Invalid JSON format: {ex.Message}");
                     return badRequestResponse;
                 }
@@ -346,21 +355,21 @@ namespace LookatDeezBackend.Functions
                 // Validate request data
                 if (addItemRequest == null)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("Request data is required");
                     return badRequestResponse;
                 }
 
                 if (string.IsNullOrWhiteSpace(addItemRequest.Title))
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("Title is required");
                     return badRequestResponse;
                 }
 
                 if (string.IsNullOrWhiteSpace(addItemRequest.Url))
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("URL is required");
                     return badRequestResponse;
                 }
@@ -368,7 +377,7 @@ namespace LookatDeezBackend.Functions
                 // Validate URL format
                 if (!Uri.TryCreate(addItemRequest.Url, UriKind.Absolute, out _))
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("Invalid URL format");
                     return badRequestResponse;
                 }
@@ -377,7 +386,7 @@ namespace LookatDeezBackend.Functions
                 var playlist = await _cosmosService.GetPlaylistByIdAsync(playlistId);
                 if (playlist == null)
                 {
-                    var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                    var notFoundResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.NotFound);
                     await notFoundResponse.WriteStringAsync("Playlist not found");
                     return notFoundResponse;
                 }
@@ -385,7 +394,7 @@ namespace LookatDeezBackend.Functions
                 // Check if user is the owner
                 if (playlist.OwnerId != userId)
                 {
-                    var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
+                    var forbiddenResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.Forbidden);
                     await forbiddenResponse.WriteStringAsync("You are not the owner of this playlist");
                     return forbiddenResponse;
                 }
@@ -412,7 +421,7 @@ namespace LookatDeezBackend.Functions
                 await _cosmosService.UpdatePlaylistAsync(playlist);
 
                 // Create success response
-                var response = req.CreateResponse(HttpStatusCode.Created);
+                var response = CorsHelper.CreateCorsResponse(req, HttpStatusCode.Created);
 
                 // Set Location header
                 var baseUrl = $"{req.Url.Scheme}://{req.Url.Host}";
@@ -424,32 +433,26 @@ namespace LookatDeezBackend.Functions
                 response.Headers.Add("Location", locationUrl);
 
                 // Set response content
-                response.Headers.Add("Content-Type", "application/json");
-                var responseJson = System.Text.Json.JsonSerializer.Serialize(newItem, new JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                });
-                await response.WriteStringAsync(responseJson);
-
+                await response.WriteAsJsonAsync(newItem);
                 return response;
             }
             catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
             {
-                var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                var notFoundResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.NotFound);
                 await notFoundResponse.WriteStringAsync("Playlist not found");
                 return notFoundResponse;
             }
             catch (CosmosException ex)
             {
-                // Log the exception details (add your logging here)
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                _logger.LogError(ex, "Database error while adding item to playlist {PlaylistId}", playlistId);
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
                 await errorResponse.WriteStringAsync($"Database error: {ex.Message}");
                 return errorResponse;
             }
             catch (Exception ex)
             {
-                // Log the exception details (add your logging here)
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                _logger.LogError(ex, "Unexpected error while adding item to playlist {PlaylistId}", playlistId);
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
                 await errorResponse.WriteStringAsync($"An unexpected error occurred: {ex.Message}");
                 return errorResponse;
             }
