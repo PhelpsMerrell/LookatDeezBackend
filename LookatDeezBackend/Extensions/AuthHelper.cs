@@ -20,7 +20,10 @@ namespace LookatDeezBackend.Extensions
         private static string ClientId => Environment.GetEnvironmentVariable("AzureAd_ClientId") 
             ?? throw new InvalidOperationException("AzureAd_ClientId not configured");
 
-        private static string JwksUri => $"https://lookatdeez.ciamlogin.com/{TenantId}/discovery/v2.0/keys";
+        private static string JwksUri => $"https://login.microsoftonline.com/{TenantId}/discovery/v2.0/keys";
+        
+        // Alternative: try the common endpoint
+        private static string CommonJwksUri => "https://login.microsoftonline.com/common/discovery/v2.0/keys";
 
         public static async Task<ClaimsPrincipal?> ValidateTokenAsync(HttpRequestData req, ILogger? logger = null)
         {
@@ -121,12 +124,20 @@ namespace LookatDeezBackend.Extensions
                     ValidateIssuer = true,
                     ValidIssuers = new[] 
                     {
+                        $"https://sts.windows.net/{TenantId}/",
+                        $"https://login.microsoftonline.com/{TenantId}/v2.0",
                         $"https://lookatdeez.ciamlogin.com/{TenantId}/v2.0",
                         $"https://lookatdeez.ciamlogin.com/{TenantId}/"
                     },
                     
                     ValidateAudience = true,
-                    ValidAudiences = new[] { ClientId, "api://" + ClientId },
+                    ValidAudiences = new[] 
+                    {
+                        ClientId, 
+                        "api://" + ClientId,
+                        "00000003-0000-0000-c000-000000000000", // Microsoft Graph
+                        "https://graph.microsoft.com"
+                    },
                     
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = key,
@@ -168,24 +179,41 @@ namespace LookatDeezBackend.Extensions
                     return _cachedJwks;
                 }
 
-                logger?.LogInformation("Fetching JWKS from {JwksUri}", JwksUri);
+                // Try tenant-specific endpoint first
+                var endpoints = new[] { JwksUri, CommonJwksUri };
                 
-                var response = await _httpClient.GetAsync(JwksUri);
-                response.EnsureSuccessStatusCode();
+                foreach (var endpoint in endpoints)
+                {
+                    try
+                    {
+                        logger?.LogInformation("Fetching JWKS from {JwksUri}", endpoint);
+                        
+                        var response = await _httpClient.GetAsync(endpoint);
+                        response.EnsureSuccessStatusCode();
+                        
+                        var json = await response.Content.ReadAsStringAsync();
+                        var jwks = new JsonWebKeySet(json);
+                        
+                        // Cache for 1 hour
+                        _cachedJwks = jwks;
+                        _jwksExpiry = DateTime.UtcNow.AddHours(1);
+                        
+                        logger?.LogInformation("JWKS cached successfully from {Endpoint} with {KeyCount} keys", endpoint, jwks.Keys.Count);
+                        return jwks;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.LogWarning(ex, "Failed to fetch JWKS from {Endpoint}", endpoint);
+                        // Continue to try next endpoint
+                    }
+                }
                 
-                var json = await response.Content.ReadAsStringAsync();
-                var jwks = new JsonWebKeySet(json);
-                
-                // Cache for 1 hour
-                _cachedJwks = jwks;
-                _jwksExpiry = DateTime.UtcNow.AddHours(1);
-                
-                logger?.LogInformation("JWKS cached successfully with {KeyCount} keys", jwks.Keys.Count);
-                return jwks;
+                logger?.LogError("Failed to fetch JWKS from all endpoints");
+                return null;
             }
             catch (Exception ex)
             {
-                logger?.LogError(ex, "Failed to fetch JWKS from {JwksUri}", JwksUri);
+                logger?.LogError(ex, "Exception in GetJwksAsync");
                 return null;
             }
         }
