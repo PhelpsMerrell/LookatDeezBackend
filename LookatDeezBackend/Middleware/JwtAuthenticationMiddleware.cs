@@ -30,6 +30,18 @@ namespace LookatDeezBackend.Middleware
             var request = await context.GetHttpRequestDataAsync();
             if (request != null)
             {
+                var functionName = context.FunctionDefinition.Name;
+                _logger.LogInformation("=== JWT Middleware Processing {FunctionName} ===", functionName);
+                _logger.LogInformation("Request Method: {Method}", request.Method);
+                _logger.LogInformation("Request URL: {Url}", request.Url);
+                
+                // Log all headers for debugging
+                _logger.LogInformation("Request Headers:");
+                foreach (var header in request.Headers)
+                {
+                    _logger.LogInformation("  {Key}: {Value}", header.Key, string.Join(", ", header.Value));
+                }
+
                 // Skip middleware for OPTIONS requests (CORS preflight)
                 if (request.Method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase))
                 {
@@ -39,16 +51,20 @@ namespace LookatDeezBackend.Middleware
                 }
 
                 // Check if this function is public
-                var functionName = context.FunctionDefinition.Name;
                 var isPublicFunction = PublicFunctions.Contains(functionName);
+                _logger.LogInformation("Function {FunctionName} is public: {IsPublic}", functionName, isPublicFunction);
                 
                 // Validate JWT token
+                _logger.LogInformation("Starting JWT token validation...");
                 var principal = await AuthHelper.ValidateTokenAsync(request, _logger);
+                
                 if (principal == null)
                 {
+                    _logger.LogWarning("JWT validation failed for function {FunctionName}", functionName);
+                    
                     if (!isPublicFunction)
                     {
-                        _logger.LogWarning("Unauthorized request to protected function {FunctionName}", functionName);
+                        _logger.LogWarning("Blocking request to protected function {FunctionName} - no valid JWT", functionName);
                         
                         // Create 401 response with CORS headers
                         var response = CorsHelper.CreateCorsResponse(request, HttpStatusCode.Unauthorized);
@@ -64,13 +80,19 @@ namespace LookatDeezBackend.Middleware
                 }
                 else
                 {
+                    _logger.LogInformation("JWT validation succeeded for function {FunctionName}", functionName);
+                    
                     // Extract user ID and add to context for functions to use
                     var userId = AuthHelper.GetUserIdFromPrincipal(principal, _logger);
+                    _logger.LogInformation("Extracted user ID from JWT: {UserId}", userId ?? "NULL");
+                    
                     if (string.IsNullOrEmpty(userId))
                     {
+                        _logger.LogWarning("No user ID found in JWT token for function {FunctionName}", functionName);
+                        
                         if (!isPublicFunction)
                         {
-                            _logger.LogWarning("No user ID found in JWT token for protected function {FunctionName}", functionName);
+                            _logger.LogWarning("Blocking request - JWT valid but no user ID for protected function {FunctionName}", functionName);
                             
                             var response = CorsHelper.CreateCorsResponse(request, HttpStatusCode.Unauthorized);
                             await response.WriteAsJsonAsync(new { error = "Invalid JWT token - no user ID" });
@@ -85,13 +107,17 @@ namespace LookatDeezBackend.Middleware
                         context.Items["UserId"] = userId;
                         context.Items["UserPrincipal"] = principal;
                         
-                        _logger.LogInformation("Authenticated user {UserId} for {FunctionName}", userId, functionName);
+                        _logger.LogInformation("Successfully authenticated user {UserId} for function {FunctionName}", userId, functionName);
                     }
                 }
             }
 
+            _logger.LogInformation("Proceeding to execute function {FunctionName}", context.FunctionDefinition.Name);
+            
             // Proceed to the function
             await next(context);
+            
+            _logger.LogInformation("Function {FunctionName} execution completed", context.FunctionDefinition.Name);
         }
     }
 }
