@@ -16,7 +16,6 @@ namespace LookatDeezBackend.Middleware
         // Functions that don't require authentication
         private static readonly HashSet<string> PublicFunctions = new()
         {
-            "DebugToken",
             "CreateUser", // User creation is special - uses JWT but creates user if not exists
             // Add other public functions here if needed
         };
