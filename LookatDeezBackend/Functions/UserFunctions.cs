@@ -9,6 +9,7 @@ using Microsoft.OpenApi.Models;
 using LookatDeezBackend.Data.Models;
 using LookatDeezBackend.Data.Repositories;
 using LookatDeezBackend.Extensions;
+using LookatDeezBackend.Helpers;
 using System.ComponentModel.DataAnnotations;
 using System.Net;
 using System.Web;
@@ -32,9 +33,15 @@ namespace LookatDeezBackend.Functions
 
         [Function("CreateUser")]
         public async Task<HttpResponseData> CreateUser(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "users")] HttpRequestData req,
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", "options", Route = "users")] HttpRequestData req,
             FunctionContext context)
         {
+            // Handle CORS preflight requests
+            if (req.Method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase))
+            {
+                return await CorsHelper.HandlePreflightRequest(req);
+            }
+
             try
             {
                 var microsoftUserId = context.GetUserId();
@@ -64,7 +71,7 @@ namespace LookatDeezBackend.Functions
                 var existingUser = await _userRepository.GetUserByIdAsync(microsoftUserId);
                 if (existingUser != null)
                 {
-                    var successResponse = req.CreateResponse(HttpStatusCode.OK);
+                    var successResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.OK);
                     await successResponse.WriteAsJsonAsync(existingUser);
                     return successResponse;
                 }
@@ -72,7 +79,7 @@ namespace LookatDeezBackend.Functions
                 existingUser = await _userRepository.GetUserByEmailAsync(email);
                 if (existingUser != null)
                 {
-                    var conflictResponse = req.CreateResponse(HttpStatusCode.Conflict);
+                    var conflictResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.Conflict);
                     await conflictResponse.WriteAsJsonAsync(new ErrorResponse
                     {
                         Error = "A user with this email address already exists"
@@ -90,14 +97,14 @@ namespace LookatDeezBackend.Functions
                 };
 
                 var createdUser = await _userRepository.CreateUserAsync(newUser);
-                var response = req.CreateResponse(HttpStatusCode.Created);
+                var response = CorsHelper.CreateCorsResponse(req, HttpStatusCode.Created);
                 await response.WriteAsJsonAsync(createdUser);
                 return response;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error creating user");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
                 await errorResponse.WriteAsJsonAsync(new ErrorResponse { Error = "An unexpected error occurred" });
                 return errorResponse;
             }
@@ -126,8 +133,14 @@ namespace LookatDeezBackend.Functions
             Description = "Returns list of users matching the search term"
         )]
         public async Task<HttpResponseData> SearchUsers(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/search")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "options", Route = "users/search")] HttpRequestData req)
         {
+            // Handle CORS preflight requests
+            if (req.Method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase))
+            {
+                return await CorsHelper.HandlePreflightRequest(req);
+            }
+
             try
             {
                 _logger.LogInformation("Searching for users");
@@ -137,7 +150,7 @@ namespace LookatDeezBackend.Functions
                 if (string.IsNullOrEmpty(requestingUserId))
                 {
                     _logger.LogWarning("Unauthorized: Invalid or missing JWT token");
-                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                    var unauthorizedResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.Unauthorized);
                     await unauthorizedResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Valid JWT token required" });
                     return unauthorizedResponse;
                 }
@@ -150,7 +163,7 @@ namespace LookatDeezBackend.Functions
                 if (string.IsNullOrWhiteSpace(searchTerm))
                 {
                     _logger.LogWarning("Empty search term");
-                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Search query 'q' is required" });
                     return badResponse;
                 }
@@ -159,14 +172,14 @@ namespace LookatDeezBackend.Functions
                 var users = await _userRepository.SearchUsersAsync(searchTerm.Trim());
                 _logger.LogInformation("Found {Count} users matching search term", users.Count);
 
-                var successResponse = req.CreateResponse(HttpStatusCode.OK);
+                var successResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.OK);
                 await successResponse.WriteAsJsonAsync(users);
                 return successResponse;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error searching users");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
                 await errorResponse.WriteAsJsonAsync(new ErrorResponse { Error = "An unexpected error occurred" });
                 return errorResponse;
             }
@@ -195,9 +208,15 @@ namespace LookatDeezBackend.Functions
             Description = "Returns the user profile information"
         )]
         public async Task<HttpResponseData> GetUserProfile(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/{userId}/profile")] HttpRequestData req,
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "options", Route = "users/{userId}/profile")] HttpRequestData req,
             string userId)
         {
+            // Handle CORS preflight requests
+            if (req.Method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase))
+            {
+                return await CorsHelper.HandlePreflightRequest(req);
+            }
+
             try
             {
                 _logger.LogInformation("Getting user profile for ID: {UserId}", userId);
@@ -205,7 +224,7 @@ namespace LookatDeezBackend.Functions
                 // Validate userId parameter
                 if (string.IsNullOrWhiteSpace(userId))
                 {
-                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badResponse.WriteAsJsonAsync(new ErrorResponse { Error = "User ID is required" });
                     return badResponse;
                 }
@@ -215,7 +234,7 @@ namespace LookatDeezBackend.Functions
                 if (string.IsNullOrEmpty(requestingUserId))
                 {
                     _logger.LogWarning("Unauthorized: Invalid or missing JWT token");
-                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
+                    var unauthorizedResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.Unauthorized);
                     await unauthorizedResponse.WriteAsJsonAsync(new ErrorResponse { Error = "Valid JWT token required" });
                     return unauthorizedResponse;
                 }
@@ -225,20 +244,20 @@ namespace LookatDeezBackend.Functions
                 if (user == null)
                 {
                     _logger.LogWarning("User not found: {UserId}", userId);
-                    var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                    var notFoundResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.NotFound);
                     await notFoundResponse.WriteAsJsonAsync(new ErrorResponse { Error = "User not found" });
                     return notFoundResponse;
                 }
 
                 _logger.LogInformation("User profile retrieved successfully for: {UserId}", userId);
-                var successResponse = req.CreateResponse(HttpStatusCode.OK);
+                var successResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.OK);
                 await successResponse.WriteAsJsonAsync(user);
                 return successResponse;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving user profile for ID: {UserId}", userId);
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
                 await errorResponse.WriteAsJsonAsync(new ErrorResponse { Error = "An unexpected error occurred" });
                 return errorResponse;
             }
