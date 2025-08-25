@@ -124,10 +124,12 @@ namespace LookatDeezBackend.Extensions
                     ValidateIssuer = true,
                     ValidIssuers = new[] 
                     {
-                        $"https://sts.windows.net/{TenantId}/",
+                        $"https://sts.windows.net/{TenantId}/",  // Standard Azure AD
                         $"https://login.microsoftonline.com/{TenantId}/v2.0",
                         $"https://lookatdeez.ciamlogin.com/{TenantId}/v2.0",
-                        $"https://lookatdeez.ciamlogin.com/{TenantId}/"
+                        $"https://lookatdeez.ciamlogin.com/{TenantId}/",
+                        "https://login.microsoftonline.com/common/v2.0",  // Common endpoint
+                        "https://login.microsoftonline.com/f8c9ea6d-89ab-4b1e-97db-dc03a426ec60/v2.0"  // Your specific tenant v2
                     },
                     
                     ValidateAudience = true,
@@ -135,7 +137,7 @@ namespace LookatDeezBackend.Extensions
                     {
                         ClientId, 
                         "api://" + ClientId,
-                        "00000003-0000-0000-c000-000000000000", // Microsoft Graph
+                        "00000003-0000-0000-c000-000000000000", // Microsoft Graph - ACCEPT THIS
                         "https://graph.microsoft.com"
                     },
                     
