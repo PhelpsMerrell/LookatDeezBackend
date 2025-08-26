@@ -32,6 +32,26 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("GetPlaylists")]
+        [OpenApiOperation(
+            operationId: "GetPlaylists",
+            tags: new[] { "Playlists" },
+            Summary = "Get user's playlists",
+            Description = "Returns all playlists owned by the user and playlists shared with the user."
+        )]
+        [OpenApiResponseWithBody(
+            statusCode: HttpStatusCode.OK,
+            contentType: "application/json",
+            bodyType: typeof(PlaylistsEnvelope),
+            Description = "User's playlists retrieved successfully."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.Unauthorized,
+            Description = "User not authenticated."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.InternalServerError,
+            Description = "An error occurred while retrieving playlists."
+        )]
         public async Task<HttpResponseData> GetPlaylists(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "playlists")] HttpRequestData req,
             FunctionContext context)
@@ -74,6 +94,36 @@ namespace LookatDeezBackend.Functions
 
 
         [Function("CreatePlaylist")]
+        [OpenApiOperation(
+            operationId: "CreatePlaylist",
+            tags: new[] { "Playlists" },
+            Summary = "Create a new playlist",
+            Description = "Creates a new playlist owned by the authenticated user."
+        )]
+        [OpenApiRequestBody(
+            contentType: "application/json",
+            bodyType: typeof(CreatePlaylistRequest),
+            Required = true,
+            Description = "The playlist details to create"
+        )]
+        [OpenApiResponseWithBody(
+            statusCode: HttpStatusCode.Created,
+            contentType: "application/json",
+            bodyType: typeof(Playlist),
+            Description = "Playlist created successfully."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.BadRequest,
+            Description = "Invalid request data - title is required."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.Unauthorized,
+            Description = "User not authenticated."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.InternalServerError,
+            Description = "An error occurred while creating the playlist."
+        )]
         public async Task<HttpResponseData> CreatePlaylist(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "playlists")] HttpRequestData req,
             FunctionContext context)
@@ -140,13 +190,7 @@ namespace LookatDeezBackend.Functions
             Type = typeof(string),
             Summary = "The playlist id"
         )]
-        [OpenApiParameter(
-            name: "x-user-id",
-            In = ParameterLocation.Header,
-            Required = true,
-            Type = typeof(string),
-            Summary = "Dev-only user id header (replace with Azure AD B2C later)."
-        )]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithBody(
             statusCode: HttpStatusCode.OK,
             contentType: "application/json",

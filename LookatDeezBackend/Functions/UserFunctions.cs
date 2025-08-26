@@ -32,6 +32,46 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("CreateUser")]
+        [OpenApiOperation(
+            operationId: "CreateUser",
+            tags: new[] { "Users" },
+            Summary = "Create or verify user account",
+            Description = "Creates a new user account or returns existing user if already exists. This endpoint is called automatically after successful Microsoft authentication."
+        )]
+        [OpenApiRequestBody(
+            contentType: "application/json",
+            bodyType: typeof(CreateUserDto),
+            Required = false,
+            Description = "Optional user details. If not provided, defaults will be used from JWT token."
+        )]
+        [OpenApiResponseWithBody(
+            statusCode: HttpStatusCode.Created,
+            contentType: "application/json",
+            bodyType: typeof(User),
+            Description = "User created successfully."
+        )]
+        [OpenApiResponseWithBody(
+            statusCode: HttpStatusCode.OK,
+            contentType: "application/json",
+            bodyType: typeof(User),
+            Description = "User already exists and was returned."
+        )]
+        [OpenApiResponseWithBody(
+            statusCode: HttpStatusCode.Conflict,
+            contentType: "application/json",
+            bodyType: typeof(ErrorResponse),
+            Description = "A user with this email address already exists."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.Unauthorized,
+            Description = "User not authenticated - valid JWT token required."
+        )]
+        [OpenApiResponseWithBody(
+            statusCode: HttpStatusCode.InternalServerError,
+            contentType: "application/json",
+            bodyType: typeof(ErrorResponse),
+            Description = "An unexpected error occurred."
+        )]
         public async Task<HttpResponseData> CreateUser(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", "options", Route = "users")] HttpRequestData req,
             FunctionContext context)
