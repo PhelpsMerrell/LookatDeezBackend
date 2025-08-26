@@ -1,0 +1,11 @@
+// Temporary fix if you can't install packages right now:
+// Comment out the logging using statements and logger fields:
+
+// using Microsoft.Extensions.Logging;  // Comment this out
+
+// private readonly ILogger<CosmosService> _logger;  // Comment this out
+
+// _logger = logger;  // Comment this out  
+// _logger?.LogInformation("...");  // Comment out all logging calls
+
+// But the proper fix is to install the package!
