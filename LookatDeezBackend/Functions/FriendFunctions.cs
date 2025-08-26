@@ -26,6 +26,34 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("GetUserFriends")]
+        [OpenApiOperation(
+            operationId: "GetUserFriends",
+            tags: new[] { "Friends" },
+            Summary = "Get user's friends list",
+            Description = "Returns the list of friends for the specified user."
+        )]
+        [OpenApiParameter(
+            name: "userId",
+            In = ParameterLocation.Path,
+            Required = true,
+            Type = typeof(string),
+            Summary = "The user ID"
+        )]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
+        [OpenApiResponseWithBody(
+            statusCode: HttpStatusCode.OK,
+            contentType: "application/json",
+            bodyType: typeof(List<FriendResponse>),
+            Description = "User's friends retrieved successfully."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.NotFound,
+            Description = "User not found."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.InternalServerError,
+            Description = "An error occurred while retrieving friends."
+        )]
         public async Task<HttpResponseData> GetUserFriends(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "users/{userId}/friends")] HttpRequestData req,
             string userId,
@@ -72,6 +100,37 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("SendFriendRequest")]
+        [OpenApiOperation(
+            operationId: "SendFriendRequest",
+            tags: new[] { "Friends" },
+            Summary = "Send a friend request",
+            Description = "Sends a friend request from the authenticated user to another user."
+        )]
+        [OpenApiRequestBody(
+            contentType: "application/json",
+            bodyType: typeof(CreateFriendRequestRequest),
+            Required = true,
+            Description = "The friend request details"
+        )]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
+        [OpenApiResponseWithBody(
+            statusCode: HttpStatusCode.Created,
+            contentType: "application/json",
+            bodyType: typeof(FriendRequestResponse),
+            Description = "Friend request sent successfully."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.BadRequest,
+            Description = "Invalid request data or users are already friends."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.NotFound,
+            Description = "Target user not found."
+        )]
+        [OpenApiResponseWithoutBody(
+            statusCode: HttpStatusCode.InternalServerError,
+            Description = "An error occurred while sending the friend request."
+        )]
         public async Task<HttpResponseData> SendFriendRequest(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "friend-requests")] HttpRequestData req,
             FunctionContext context)
