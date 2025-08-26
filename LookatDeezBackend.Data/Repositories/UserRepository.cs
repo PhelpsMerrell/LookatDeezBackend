@@ -1,5 +1,6 @@
 ﻿using Microsoft.Azure.Cosmos;
 using LookatDeezBackend.Data.Models;
+using Microsoft.Extensions.Logging;
 using System.Net;
 
 namespace LookatDeezBackend.Data.Repositories
@@ -7,10 +8,14 @@ namespace LookatDeezBackend.Data.Repositories
     public class UserRepository : IUserRepository
     {
         private readonly Container _container;
+        private readonly ILogger<UserRepository> _logger;
 
-        public UserRepository(CosmosClient cosmosClient, string databaseName)
+        public UserRepository(CosmosClient cosmosClient, string databaseName, ILogger<UserRepository> logger = null)
         {
             _container = cosmosClient.GetContainer(databaseName, "users");
+            _logger = logger;
+            
+            _logger?.LogInformation("UserRepository initialized with database: {DatabaseName}, container: users", databaseName);
         }
 
         public async Task<Models.User> GetUserByIdAsync(string userId)
@@ -55,12 +60,30 @@ namespace LookatDeezBackend.Data.Repositories
         {
             try
             {
+                _logger?.LogInformation("=== CreateUserAsync ===" );
+                _logger?.LogInformation("Creating user - ID: {UserId}, Email: {Email}, DisplayName: {DisplayName}", 
+                    user.Id, user.Email, user.DisplayName);
+                    
                 var response = await _container.CreateItemAsync(user, new PartitionKey(user.Id));
+                
+                _logger?.LogInformation("User created successfully - ID: {UserId}, Email: {Email}", user.Id, user.Email);
                 return response.Resource;
             }
             catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
             {
+                _logger?.LogWarning("User already exists - ID: {UserId}, Email: {Email}", user.Id, user.Email);
                 throw new InvalidOperationException($"User with ID {user.Id} already exists", ex);
+            }
+            catch (CosmosException ex)
+            {
+                _logger?.LogError(ex, "CosmosDB error creating user - StatusCode: {StatusCode}, Message: {Message}, UserId: {UserId}", 
+                    ex.StatusCode, ex.Message, user.Id);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Unexpected error creating user - UserId: {UserId}, Email: {Email}", user.Id, user.Email);
+                throw;
             }
         }
 

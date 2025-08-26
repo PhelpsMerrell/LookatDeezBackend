@@ -31,7 +31,12 @@ var host = new HostBuilder()
         });
 
         // Your existing DI services
-        services.AddScoped<ICosmosService, CosmosService>();
+        services.AddScoped<ICosmosService>(serviceProvider => 
+        {
+            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+            var logger = serviceProvider.GetRequiredService<ILogger<CosmosService>>();
+            return new CosmosService(configuration, logger);
+        });
         services.AddScoped<AuthorizationService>();
 
         // Fixed UserRepository registration with proper constructor parameters
@@ -39,7 +44,8 @@ var host = new HostBuilder()
         {
             var cosmosClient = serviceProvider.GetRequiredService<CosmosClient>();
             var databaseName = Environment.GetEnvironmentVariable("CosmosDb_DatabaseName") ?? "lookatdeez-db";
-            return new UserRepository(cosmosClient, databaseName);
+            var logger = serviceProvider.GetRequiredService<ILogger<UserRepository>>();
+            return new UserRepository(cosmosClient, databaseName, logger);
         });
 
         // Optional: logging/config extras
