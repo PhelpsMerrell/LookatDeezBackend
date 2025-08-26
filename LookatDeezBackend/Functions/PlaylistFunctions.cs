@@ -36,13 +36,27 @@ namespace LookatDeezBackend.Functions
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "playlists")] HttpRequestData req,
             FunctionContext context)
         {
-            var userId = context.GetUserId();
-            var owned = await _cosmosService.GetUserPlaylistsAsync(userId);
-            var shared = await _cosmosService.GetSharedPlaylistsAsync(userId);
+            try
+            {
+                var userId = context.GetUserId();
+                _logger.LogInformation("Getting playlists for user: {UserId}", userId);
+                
+                var owned = await _cosmosService.GetUserPlaylistsAsync(userId);
+                var shared = await _cosmosService.GetSharedPlaylistsAsync(userId);
+                
+                _logger.LogInformation("Found {OwnedCount} owned and {SharedCount} shared playlists", owned.Count(), shared.Count());
 
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new { owned, shared });
-            return response;
+                var response = CorsHelper.CreateCorsResponse(req, HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(new { owned, shared });
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting playlists");
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { error = "Failed to get playlists", details = ex.Message });
+                return errorResponse;
+            }
         }
         public sealed class PlaylistsEnvelope
         {
@@ -64,33 +78,52 @@ namespace LookatDeezBackend.Functions
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "playlists")] HttpRequestData req,
             FunctionContext context)
         {
-            var userId = context.GetUserId();
-            var body = await new StreamReader(req.Body).ReadToEndAsync();
-            var request = JsonConvert.DeserializeObject<CreatePlaylistRequest>(body);
-
-            if (string.IsNullOrEmpty(request?.Title))
+            try
             {
-                var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequestResponse.WriteStringAsync("Title is required");
-                return badRequestResponse;
+                var userId = context.GetUserId();
+                _logger.LogInformation("Creating playlist for user: {UserId}", userId);
+                var body = await new StreamReader(req.Body).ReadToEndAsync();
+                _logger.LogInformation("Request body: {Body}", body);
+                
+                var request = JsonConvert.DeserializeObject<CreatePlaylistRequest>(body);
+
+                if (string.IsNullOrEmpty(request?.Title))
+                {
+                    _logger.LogWarning("Empty title in playlist creation request");
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
+                    await badRequestResponse.WriteAsJsonAsync(new { error = "Title is required" });
+                    return badRequestResponse;
+                }
+
+                var now = DateTime.UtcNow;
+                var playlist = new Playlist
+                {
+                    Id = Guid.NewGuid().ToString("n"),
+                    Title = request.Title.Trim(),
+                    OwnerId = userId,
+                    IsPublic = request.IsPublic,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+                
+                _logger.LogInformation("Attempting to create playlist: {Title} for owner: {OwnerId}", playlist.Title, playlist.OwnerId);
+
+                var created = await _cosmosService.CreatePlaylistAsync(playlist);
+                
+                var response = CorsHelper.CreateCorsResponse(req, HttpStatusCode.Created);
+                response.Headers.Add("Location", $"/api/playlists/{created.Id}");
+                await response.WriteAsJsonAsync(created);
+                
+                _logger.LogInformation("Playlist created successfully: {PlaylistId}", created.Id);
+                return response;
             }
-
-            var now = DateTime.UtcNow;
-            var playlist = new Playlist
+            catch (Exception ex)
             {
-                Id = Guid.NewGuid().ToString("n"),
-                Title = request.Title.Trim(),
-                OwnerId = userId,
-                IsPublic = request.IsPublic,
-                CreatedAt = now,
-                UpdatedAt = now
-            };
-
-            var created = await _cosmosService.CreatePlaylistAsync(playlist);
-            var response = req.CreateResponse(HttpStatusCode.Created);
-            response.Headers.Add("Location", $"/api/playlists/{created.Id}");
-            await response.WriteAsJsonAsync(created);
-            return response;
+                _logger.LogError(ex, "Error creating playlist");
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { error = "Failed to create playlist", details = ex.Message });
+                return errorResponse;
+            }
         }
 
         [Function("GetPlaylist")]

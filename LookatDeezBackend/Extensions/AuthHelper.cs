@@ -149,7 +149,7 @@ namespace LookatDeezBackend.Extensions
                 logger?.LogInformation("Valid issuers: {ValidIssuers}", string.Join(", ", validIssuers));
                 logger?.LogInformation("Valid audiences: {ValidAudiences}", string.Join(", ", validAudiences));
 
-                // Use simpler validation for Azure AD tokens - disable signature validation temporarily
+                // Use proper validation for Azure AD tokens with JWKS keys
                 var validationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
@@ -158,9 +158,10 @@ namespace LookatDeezBackend.Extensions
                     ValidateAudience = true,
                     ValidAudiences = validAudiences,
                     
-                    // TEMPORARILY DISABLE signature validation to test
-                    ValidateIssuerSigningKey = false,
-                    RequireSignedTokens = false,
+                    // Enable proper signature validation
+                    ValidateIssuerSigningKey = true,
+                    RequireSignedTokens = true,
+                    IssuerSigningKeys = jwks.Keys, // Use JWKS keys for validation
                     
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.FromMinutes(5),
