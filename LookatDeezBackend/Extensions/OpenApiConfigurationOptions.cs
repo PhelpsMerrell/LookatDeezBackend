@@ -26,32 +26,8 @@ namespace LookatDeezBackend.Extensions
 
         public override OpenApiVersionType OpenApiVersion { get; set; } = OpenApiVersionType.V3;
 
-        public override Dictionary<string, OpenApiSecurityScheme> SecuritySchemes { get; set; } = new Dictionary<string, OpenApiSecurityScheme>()
-        {
-            {
-                "bearer_auth", new OpenApiSecurityScheme()
-                {
-                    Type = SecuritySchemeType.Http,
-                    Scheme = "bearer",
-                    BearerFormat = "JWT",
-                    Description = "Enter your JWT token obtained from Microsoft Azure AD B2C authentication"
-                }
-            }
-        };
+      
 
-        public override OpenApiSecurityRequirement SecurityRequirement { get; set; } = new OpenApiSecurityRequirement()
-        {
-            {
-                new OpenApiSecurityScheme()
-                {
-                    Reference = new OpenApiReference()
-                    {
-                        Type = ReferenceType.SecurityScheme,
-                        Id = "bearer_auth"
-                    }
-                },
-                new string[] { }
-            }
-        };
+        
     }
 }
