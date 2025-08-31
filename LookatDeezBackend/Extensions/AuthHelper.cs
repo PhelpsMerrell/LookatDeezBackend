@@ -12,10 +12,10 @@ namespace LookatDeezBackend.Extensions
         private static readonly HttpClient _httpClient = new HttpClient();
         private static JsonWebKeySet? _cachedJwks;
         private static DateTime _jwksExpiry = DateTime.MinValue;
-        
+
         // CIAM Configuration
-        private static string TenantId => "f8c9ea6d-89ab-4b1e-97db-dc03a426ec60";
-        private static string ClientId => "f0749993-27a7-486f-930d-16a825e017bf";
+        private static string TenantId => Environment.GetEnvironmentVariable("AzureAd_TenantId") ?? "f8c9ea6d-89ab-4b1e-97db-dc03a426ec60";
+        private static string ClientId => Environment.GetEnvironmentVariable("AzureAd_ClientId") ?? "f0749993-27a7-486f-930d-16a825e017bf";
         private static string UserFlow => "B2C_1_signupsignin1";
 
         public static async Task<string?> GetUserIdAsync(HttpRequestData req, ILogger? logger = null)
@@ -30,7 +30,7 @@ namespace LookatDeezBackend.Extensions
             {
                 if (!req.Headers.TryGetValues("Authorization", out var authHeaders))
                 {
-                    logger?.LogWarning("No Authorization header found");
+                    logger?.LogInformation("No Authorization header found");
                     return null;
                 }
 
@@ -42,6 +42,7 @@ namespace LookatDeezBackend.Extensions
                 }
 
                 var token = authHeader.Substring(7);
+                logger?.LogInformation("Validating JWT token...");
                 return await ValidateJwtTokenAsync(token, logger);
             }
             catch (Exception ex)
@@ -55,21 +56,31 @@ namespace LookatDeezBackend.Extensions
         {
             if (principal == null) return null;
 
-            // For CIAM tokens, try different claim types
-            var userIdClaim = principal.Claims.FirstOrDefault(c => 
-                c.Type == "oid" ||      // Object ID
+            // Log all claims for debugging
+            if (logger != null && logger.IsEnabled(LogLevel.Debug))
+            {
+                logger.LogDebug("Available claims in token:");
+                foreach (var claim in principal.Claims)
+                {
+                    logger.LogDebug("  {Type}: {Value}", claim.Type, claim.Value);
+                }
+            }
+
+            // For CIAM tokens, try different claim types in order of preference
+            var userIdClaim = principal.Claims.FirstOrDefault(c =>
+                c.Type == "oid" ||      // Object ID (most reliable for CIAM)
                 c.Type == "sub" ||      // Subject  
-                c.Type == "emails" ||   // B2C emails claim
                 c.Type == ClaimTypes.NameIdentifier);
 
             var userId = userIdClaim?.Value;
             if (!string.IsNullOrEmpty(userId))
             {
-                logger?.LogInformation("Extracted user ID from CIAM token: {UserId}", userId);
+                logger?.LogInformation("Extracted user ID from claim '{ClaimType}': {UserId}", userIdClaim.Type, userId);
                 return userId;
             }
 
-            logger?.LogWarning("No user ID claim found in CIAM token");
+            logger?.LogWarning("No user ID claim found in token. Available claims: {Claims}",
+                string.Join(", ", principal.Claims.Select(c => c.Type)));
             return null;
         }
 
@@ -77,9 +88,9 @@ namespace LookatDeezBackend.Extensions
         {
             try
             {
-                logger?.LogInformation("Validating CIAM JWT token");
+                logger?.LogInformation("Starting JWT token validation for CIAM");
                 var handler = new JwtSecurityTokenHandler();
-                
+
                 if (!handler.CanReadToken(token))
                 {
                     logger?.LogWarning("Invalid JWT token format");
@@ -87,14 +98,13 @@ namespace LookatDeezBackend.Extensions
                 }
 
                 var jsonToken = handler.ReadJwtToken(token);
-                logger?.LogInformation("CIAM token issuer: {Issuer}", jsonToken.Issuer);
-                logger?.LogInformation("CIAM token audience: {Audience}", string.Join(", ", jsonToken.Audiences));
-                logger?.LogInformation("CIAM token kid: {Kid}", jsonToken.Header.Kid);
+                logger?.LogInformation("Token details - Issuer: {Issuer}, Audience: {Audience}, Kid: {Kid}",
+                    jsonToken.Issuer, string.Join(", ", jsonToken.Audiences), jsonToken.Header.Kid);
 
                 var jwks = await GetJwksAsync(logger);
                 if (jwks == null)
                 {
-                    logger?.LogError("Failed to get CIAM JWKS keys");
+                    logger?.LogError("Failed to retrieve JWKS keys");
                     return null;
                 }
 
@@ -102,8 +112,8 @@ namespace LookatDeezBackend.Extensions
                 var key = jwks.Keys.FirstOrDefault(k => k.Kid == kid);
                 if (key == null)
                 {
-                    logger?.LogWarning("No matching CIAM key found for kid: {Kid}", kid);
-                    logger?.LogInformation("Available CIAM key IDs: {KeyIds}", string.Join(", ", jwks.Keys.Select(k => k.Kid)));
+                    logger?.LogWarning("No matching key found for kid: {Kid}. Available keys: {KeyIds}",
+                        kid, string.Join(", ", jwks.Keys.Select(k => k.Kid)));
                     return null;
                 }
 
@@ -111,44 +121,44 @@ namespace LookatDeezBackend.Extensions
                 var validationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
-                    ValidIssuers = new[] 
+                    ValidIssuers = new[]
                     {
                         $"https://lookatdeez.ciamlogin.com/{TenantId}/v2.0/",
                         $"https://lookatdeez.ciamlogin.com/{TenantId}/",
-                        $"https://login.microsoftonline.com/{TenantId}/v2.0"  // Fallback
+                        $"https://login.microsoftonline.com/{TenantId}/v2.0"
                     },
-                    
+
                     ValidateAudience = true,
-                    ValidAudiences = new[] 
+                    ValidAudiences = new[]
                     {
                         ClientId,
                         $"https://lookatdeez.onmicrosoft.com/{ClientId}/access"
                     },
-                    
+
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKeys = new[] { key },
-                    
+
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.FromMinutes(5),
                     RequireExpirationTime = true
                 };
 
                 var result = await handler.ValidateTokenAsync(token, validationParameters);
-                
+
                 if (result.IsValid)
                 {
-                    logger?.LogInformation("CIAM JWT token validation successful");
+                    logger?.LogInformation("JWT token validation successful");
                     return new ClaimsPrincipal(result.ClaimsIdentity);
                 }
                 else
                 {
-                    logger?.LogWarning("CIAM JWT token validation failed: {Error}", result.Exception?.Message);
+                    logger?.LogWarning("JWT token validation failed: {Error}", result.Exception?.Message);
                     return null;
                 }
             }
             catch (Exception ex)
             {
-                logger?.LogError(ex, "CIAM JWT validation exception");
+                logger?.LogError(ex, "Exception during JWT validation");
                 return null;
             }
         }
@@ -162,38 +172,44 @@ namespace LookatDeezBackend.Extensions
                     return _cachedJwks;
                 }
 
-                // CIAM JWKS endpoint
-                var jwksUri = $"https://lookatdeez.ciamlogin.com/{TenantId}/discovery/v2.0/keys?p={UserFlow}";
-                logger?.LogInformation("Fetching CIAM JWKS from: {JwksUri}", jwksUri);
+                // Correct CIAM JWKS endpoint (without user flow parameter)
+                var jwksUri = $"https://lookatdeez.ciamlogin.com/{TenantId}/discovery/v2.0/keys";
+                logger?.LogInformation("Fetching JWKS from: {JwksUri}", jwksUri);
 
                 var response = await _httpClient.GetAsync(jwksUri);
-                
+
                 if (!response.IsSuccessStatusCode)
                 {
-                    logger?.LogWarning("CIAM JWKS request failed with status: {StatusCode}", response.StatusCode);
-                    
+                    logger?.LogWarning("JWKS request failed with status: {StatusCode}", response.StatusCode);
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    logger?.LogWarning("JWKS error response: {ErrorContent}", errorContent);
+
                     // Try fallback endpoint
                     var fallbackJwksUri = $"https://login.microsoftonline.com/{TenantId}/discovery/v2.0/keys";
                     logger?.LogInformation("Trying fallback JWKS endpoint: {FallbackUri}", fallbackJwksUri);
-                    
+
                     response = await _httpClient.GetAsync(fallbackJwksUri);
-                    response.EnsureSuccessStatusCode();
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        logger?.LogError("Fallback JWKS request also failed with status: {StatusCode}", response.StatusCode);
+                        return null;
+                    }
                 }
-                
+
                 var json = await response.Content.ReadAsStringAsync();
                 var jwks = new JsonWebKeySet(json);
-                
+
                 _cachedJwks = jwks;
                 _jwksExpiry = DateTime.UtcNow.AddHours(1);
-                
-                logger?.LogInformation("CIAM JWKS loaded with {KeyCount} keys", jwks.Keys.Count);
-                logger?.LogInformation("CIAM key IDs: {KeyIds}", string.Join(", ", jwks.Keys.Select(k => k.Kid)));
-                
+
+                logger?.LogInformation("JWKS loaded successfully with {KeyCount} keys", jwks.Keys.Count);
+                logger?.LogDebug("Available key IDs: {KeyIds}", string.Join(", ", jwks.Keys.Select(k => k.Kid)));
+
                 return jwks;
             }
             catch (Exception ex)
             {
-                logger?.LogError(ex, "Failed to get CIAM JWKS");
+                logger?.LogError(ex, "Failed to retrieve JWKS");
                 return null;
             }
         }
