@@ -135,8 +135,9 @@ namespace LookatDeezBackend.Extensions
                     ValidateAudience = true,
                     ValidAudiences = new[]
                     {
-                        ClientId,  // Accept tokens for the frontend app
-                        FrontendClientId, // Same as above but explicit
+                        ClientId,  // Frontend client ID
+                        "44c46a0b-0c02-4e97-be76-cbe30edc3829", // Backend API client ID
+                        "api://44c46a0b-0c02-4e97-be76-cbe30edc3829" // API URI format
                     },
 
                     ValidateIssuerSigningKey = true,
