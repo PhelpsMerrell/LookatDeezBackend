@@ -124,20 +124,19 @@ namespace LookatDeezBackend.Extensions
                     ValidateIssuer = true,
                     ValidIssuers = new[]
                     {
+                        $"https://{TenantId}.ciamlogin.com/{TenantId}/v2.0", // Exact format from your token
+                        $"https://{TenantId}.ciamlogin.com/{TenantId}/",
                         $"https://lookatdeez.ciamlogin.com/{TenantId}/v2.0/",
                         $"https://lookatdeez.ciamlogin.com/{TenantId}/",
-                        $"https://login.microsoftonline.com/{TenantId}/v2.0",
-                        // B2C user flow specific issuers
-                        $"https://lookatdeez.b2clogin.com/{TenantId}/v2.0/",
-                        $"https://lookatdeez.b2clogin.com/lookatdeez.onmicrosoft.com/{UserFlow}/v2.0/"
+                        $"https://login.microsoftonline.com/{TenantId}/v2.0"
                     },
 
                     ValidateAudience = true,
                     ValidAudiences = new[]
                     {
-                        ClientId,  // Frontend client ID
-                        "44c46a0b-0c02-4e97-be76-cbe30edc3829", // Backend API client ID
-                        "api://44c46a0b-0c02-4e97-be76-cbe30edc3829" // API URI format
+                        "44c46a0b-0c02-4e97-be76-cbe30edc3829", // Exact audience from your token
+                        "api://44c46a0b-0c02-4e97-be76-cbe30edc3829", // API URI format (if needed)
+                        ClientId,  // Frontend client ID as fallback
                     },
 
                     ValidateIssuerSigningKey = true,
