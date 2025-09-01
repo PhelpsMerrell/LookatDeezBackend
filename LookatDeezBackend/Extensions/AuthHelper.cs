@@ -15,8 +15,9 @@ namespace LookatDeezBackend.Extensions
 
         // CIAM Configuration
         private static string TenantId => Environment.GetEnvironmentVariable("AzureAd_TenantId") ?? "f8c9ea6d-89ab-4b1e-97db-dc03a426ec60";
-        private static string ClientId => Environment.GetEnvironmentVariable("AzureAd_ClientId") ?? "f0749993-27a7-486f-930d-16a825e017bf";
-        private static string UserFlow => "B2C_1_signupsignin1";
+        private static string BackendClientId => Environment.GetEnvironmentVariable("AzureAd_ClientId") ?? "44c46a0b-0c02-4e97-be76-cbe30edc3829"; // Backend API Client ID
+        private static string FrontendClientId => "f0749993-27a7-486f-930d-16a825e017bf"; // Frontend App Client ID
+    private static string UserFlow => "B2C_1_signupsignin1";
 
         public static async Task<string?> GetUserIdAsync(HttpRequestData req, ILogger? logger = null)
         {
@@ -125,14 +126,19 @@ namespace LookatDeezBackend.Extensions
                     {
                         $"https://lookatdeez.ciamlogin.com/{TenantId}/v2.0/",
                         $"https://lookatdeez.ciamlogin.com/{TenantId}/",
-                        $"https://login.microsoftonline.com/{TenantId}/v2.0"
+                        $"https://login.microsoftonline.com/{TenantId}/v2.0",
+                        // B2C user flow specific issuers
+                        $"https://lookatdeez.b2clogin.com/{TenantId}/v2.0/",
+                        $"https://lookatdeez.b2clogin.com/lookatdeez.onmicrosoft.com/{UserFlow}/v2.0/"
                     },
 
                     ValidateAudience = true,
                     ValidAudiences = new[]
                     {
-                        ClientId,
-                        $"https://lookatdeez.onmicrosoft.com/{ClientId}/access"
+                        FrontendClientId, // Frontend app tokens
+                        BackendClientId,  // Backend API tokens
+                        $"https://lookatdeez.onmicrosoft.com/{BackendClientId}/access",
+                        $"https://lookatdeez.onmicrosoft.com/{FrontendClientId}/access"
                     },
 
                     ValidateIssuerSigningKey = true,
@@ -172,8 +178,8 @@ namespace LookatDeezBackend.Extensions
                     return _cachedJwks;
                 }
 
-                // Correct CIAM JWKS endpoint (without user flow parameter)
-                var jwksUri = $"https://lookatdeez.ciamlogin.com/{TenantId}/discovery/v2.0/keys";
+                // CIAM JWKS endpoint with user flow
+                var jwksUri = $"https://lookatdeez.ciamlogin.com/{TenantId}/discovery/v2.0/keys?p={UserFlow}";
                 logger?.LogInformation("Fetching JWKS from: {JwksUri}", jwksUri);
 
                 var response = await _httpClient.GetAsync(jwksUri);
