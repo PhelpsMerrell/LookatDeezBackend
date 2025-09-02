@@ -4,6 +4,9 @@ using Microsoft.Extensions.Logging;
 using LookatDeezBackend.Extensions;
 using LookatDeezBackend.Helpers;
 using System.Net;
+using Microsoft.Azure.WebJobs.Extensions.OpenApi.Core.Attributes;
+using Microsoft.Azure.WebJobs.Extensions.OpenApi.Core.Enums;
+using Microsoft.OpenApi.Models;
 
 namespace LookatDeezBackend.Functions
 {
@@ -17,6 +20,7 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("DebugAuth")]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         public async Task<HttpResponseData> DebugAuth(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", "options", Route = "debug/auth")] HttpRequestData req)
         {

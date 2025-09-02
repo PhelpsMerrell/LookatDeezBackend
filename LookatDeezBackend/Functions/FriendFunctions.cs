@@ -224,7 +224,7 @@ namespace LookatDeezBackend.Functions
 
         [Function("GetFriendRequests")]
         [OpenApiOperation(operationId: "GetFriendRequests", tags: ["Friends"])]
-        [OpenApiParameter(name: "x-user-id", In = ParameterLocation.Header, Required = true, Type = typeof(string))]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithBody(statusCode: HttpStatusCode.OK, contentType: "application/json", bodyType: typeof(FriendRequestsEnvelope))]
         public async Task<HttpResponseData> GetFriendRequests(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "friend-requests")] HttpRequestData req)
@@ -294,8 +294,8 @@ namespace LookatDeezBackend.Functions
         [Function("UpdateFriendRequest")]
         [OpenApiOperation(operationId: "UpdateFriendRequest", tags: ["Friends"])]
         [OpenApiParameter(name: "requestId", In = ParameterLocation.Path, Required = true, Type = typeof(string))]
-        [OpenApiParameter(name: "x-user-id", In = ParameterLocation.Header, Required = true, Type = typeof(string))]
         [OpenApiRequestBody("application/json", typeof(UpdateFriendRequestRequest))]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithBody(statusCode: HttpStatusCode.OK, contentType: "application/json", bodyType: typeof(FriendRequestResponse))]
         [OpenApiResponseWithBody(statusCode: HttpStatusCode.BadRequest, contentType: "application/json", bodyType: typeof(object))]
         [OpenApiResponseWithBody(statusCode: HttpStatusCode.NotFound, contentType: "application/json", bodyType: typeof(object))]
@@ -409,7 +409,7 @@ namespace LookatDeezBackend.Functions
         [Function("RemoveFriend")]
         [OpenApiOperation(operationId: "RemoveFriend", tags: ["Friends"])]
         [OpenApiParameter(name: "friendId", In = ParameterLocation.Path, Required = true, Type = typeof(string))]
-        [OpenApiParameter(name: "x-user-id", In = ParameterLocation.Header, Required = true, Type = typeof(string))]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithBody(statusCode: HttpStatusCode.NoContent, contentType: "application/json", bodyType: typeof(object))]
         [OpenApiResponseWithBody(statusCode: HttpStatusCode.NotFound, contentType: "application/json", bodyType: typeof(object))]
         public async Task<HttpResponseData> RemoveFriend(

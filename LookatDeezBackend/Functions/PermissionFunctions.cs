@@ -7,6 +7,9 @@ using Microsoft.Azure.Functions.Worker.Http;
 using LookatDeezBackend.Extensions;
 using Newtonsoft.Json;
 using System.Net;
+using Microsoft.Azure.WebJobs.Extensions.OpenApi.Core.Attributes;
+using Microsoft.Azure.WebJobs.Extensions.OpenApi.Core.Enums;
+using Microsoft.OpenApi.Models;
 
 namespace LookatDeezBackend.Functions
 {
@@ -24,6 +27,7 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("SharePlaylist")]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         public async Task<HttpResponseData> SharePlaylist(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "playlists/{playlistId}/share")] HttpRequestData req)
         {
@@ -79,6 +83,7 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("GetPlaylistPermissions")]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         public async Task<HttpResponseData> GetPlaylistPermissions(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "playlists/{playlistId}/permissions")] HttpRequestData req)
         {
@@ -107,6 +112,7 @@ namespace LookatDeezBackend.Functions
         }
 
         [Function("RevokeAccess")]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         public async Task<HttpResponseData> RevokeAccess(
             [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "playlists/{playlistId}/permissions/{targetUserId}")] HttpRequestData req)
         {

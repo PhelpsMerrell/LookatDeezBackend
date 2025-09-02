@@ -45,6 +45,7 @@ namespace LookatDeezBackend.Functions
             bodyType: typeof(PlaylistsEnvelope),
             Description = "User's playlists retrieved successfully."
         )]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithoutBody(
             statusCode: HttpStatusCode.Unauthorized,
             Description = "User not authenticated."
@@ -117,6 +118,7 @@ namespace LookatDeezBackend.Functions
             statusCode: HttpStatusCode.BadRequest,
             Description = "Invalid request data - title is required."
         )]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithoutBody(
             statusCode: HttpStatusCode.Unauthorized,
             Description = "User not authenticated."
@@ -251,13 +253,7 @@ namespace LookatDeezBackend.Functions
             Type = typeof(string),
             Summary = "The playlist id"
         )]
-        [OpenApiParameter(
-            name: "x-user-id",
-            In = ParameterLocation.Header,
-            Required = true,
-            Type = typeof(string),
-            Summary = "Dev-only user id header (replace with Azure AD B2C later)."
-        )]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithoutBody(
             statusCode: HttpStatusCode.NoContent,
             Description = "Playlist deleted successfully."
@@ -339,19 +335,13 @@ namespace LookatDeezBackend.Functions
             Type = typeof(string),
             Summary = "The playlist id"
         )]
-        [OpenApiParameter(
-            name: "x-user-id",
-            In = ParameterLocation.Header,
-            Required = true,
-            Type = typeof(string),
-            Summary = "Dev-only user id header (replace with Azure AD B2C later)."
-        )]
         [OpenApiRequestBody(
             contentType: "application/json",
             bodyType: typeof(AddItemRequest),
             Required = true,
             Description = "The item details to add to the playlist"
         )]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithBody(
             statusCode: HttpStatusCode.Created,
             contentType: "application/json",
@@ -558,13 +548,7 @@ namespace LookatDeezBackend.Functions
     Type = typeof(string),
     Summary = "The item id to remove"
 )]
-        [OpenApiParameter(
-    name: "x-user-id",
-    In = ParameterLocation.Header,
-    Required = true,
-    Type = typeof(string),
-    Summary = "Dev-only user id header (replace with Azure AD B2C later)."
-)]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithoutBody(
     statusCode: HttpStatusCode.NoContent,
     Description = "Item removed successfully."
@@ -691,19 +675,13 @@ namespace LookatDeezBackend.Functions
             Type = typeof(string),
             Summary = "The playlist id"
         )]
-        [OpenApiParameter(
-            name: "x-user-id",
-            In = ParameterLocation.Header,
-            Required = true,
-            Type = typeof(string),
-            Summary = "Dev-only user id header (replace with Azure AD B2C later)."
-        )]
         [OpenApiRequestBody(
             contentType: "application/json",
             bodyType: typeof(ReorderItemsRequest),
             Required = true,
             Description = "The new order of items as an array of item IDs"
         )]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithoutBody(
             statusCode: HttpStatusCode.NoContent,
             Description = "Items reordered successfully."

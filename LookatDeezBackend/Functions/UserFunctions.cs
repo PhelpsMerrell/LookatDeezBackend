@@ -165,6 +165,7 @@ namespace LookatDeezBackend.Functions
             Summary = "Search query",
             Description = "Search term for display name or email"
         )]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithBody(
             statusCode: HttpStatusCode.OK,
             contentType: "application/json",
@@ -240,6 +241,7 @@ namespace LookatDeezBackend.Functions
             Summary = "User ID",
             Description = "The unique identifier of the user"
         )]
+        [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithBody(
             statusCode: HttpStatusCode.OK,
             contentType: "application/json",
