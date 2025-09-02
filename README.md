@@ -4,8 +4,8 @@ A powerful Azure Functions-based backend API for managing music playlists, socia
 
 ## 🌐 Live Application
 **Frontend**: [https://lookatdeez.com](https://lookatdeez.com)  
-**API Documentation**: [https://lookatdeez-functions.azurewebsites.net/api/swagger/ui](https://lookatdeez-functions.azurewebsites.net/api/swagger/ui)
-
+**API Documentation**: [[https://lookatdeez-functions.azurewebsites.net/api/swagger/ui]([https://lookatdeez-functions.azurewebsites.net/api/swagger/ui](https://lookatdeez-functions.azurewebsites.net/api/swagger/ui?url=/api/openapi/v3.json))
+](https://lookatdeez-functions.azurewebsites.net/api/swagger/ui?url=/api/openapi/v3.json)
 ## 🚀 What is LookAtDeez?
 
 LookAtDeez is a modern social music playlist platform that lets users create, share, and manage video playlists from various sources like YouTube, TikTok, Instagram Reels, and more. Think of it as your personal playlist curator with social sharing capabilities.
