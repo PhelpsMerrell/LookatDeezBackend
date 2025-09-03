@@ -8,6 +8,7 @@ using Microsoft.Azure.Cosmos;
 using LookatDeezBackend.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Azure.Functions.Worker.Extensions.OpenApi.Extensions;
 
 var host = new HostBuilder()
     .ConfigureFunctionsWorkerDefaults(builder =>
@@ -15,6 +16,7 @@ var host = new HostBuilder()
         // Register JWT authentication middleware
         builder.UseMiddleware<JwtAuthenticationMiddleware>();
     })
+    .ConfigureOpenApi()
     .ConfigureServices(services =>
     {
         // Application Insights (isolated)
