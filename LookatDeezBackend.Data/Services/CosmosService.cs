@@ -24,33 +24,29 @@ namespace LookatDeezBackend.Data.Services
         private readonly IUserRepository _userRepository;
         private readonly ILogger<CosmosService> _logger;
 
-        public CosmosService(IConfiguration configuration, ILogger<CosmosService> logger, ILoggerFactory loggerFactory)
+        public CosmosService(
+             IConfiguration configuration,
+             CosmosClient cosmosClient,
+             ILogger<CosmosService> logger,
+             IUserRepository userRepository,
+             IFriendRequestRepository friendRequestRepository)
         {
             _logger = logger;
-            
-            var connectionString = configuration.GetConnectionString("CosmosDb");
-            var databaseName = configuration["CosmosDb_DatabaseName"];
-            
-            _logger.LogInformation("=== CosmosService Initialization ===" );
-            _logger.LogInformation("Connection String: {ConnectionString}", connectionString);
+            _userRepository = userRepository;
+            _friendRequestRepository = friendRequestRepository;
+
+            var databaseName =
+                configuration["CosmosDb_DatabaseName"] ??
+                Environment.GetEnvironmentVariable("CosmosDb_DatabaseName");
+
+            _logger.LogInformation("=== CosmosService Initialization ===");
             _logger.LogInformation("Database Name: {DatabaseName}", databaseName);
 
-            var cosmosClient = new CosmosClient(connectionString);
             var database = cosmosClient.GetDatabase(databaseName);
-
             _playlistContainer = database.GetContainer("playlists");
             _permissionContainer = database.GetContainer("permissions");
-            
+
             _logger.LogInformation("CosmosDB containers initialized: playlists, permissions");
-            
-            // Initialize repositories
-            _friendRequestRepository = new FriendRequestRepository(cosmosClient, databaseName);
-            
-            // Create a logger for UserRepository
-           
-            var userRepoLogger = loggerFactory.CreateLogger<UserRepository>();
-            _userRepository = new UserRepository(cosmosClient, databaseName, userRepoLogger);
-            
             _logger.LogInformation("CosmosService initialization completed");
         }
 

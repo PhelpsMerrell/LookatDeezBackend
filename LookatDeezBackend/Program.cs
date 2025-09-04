@@ -13,50 +13,45 @@ using Microsoft.Azure.Functions.Worker.Extensions.OpenApi.Extensions;
 var host = new HostBuilder()
     .ConfigureFunctionsWorkerDefaults(builder =>
     {
-        // Register JWT authentication middleware
         builder.UseMiddleware<JwtAuthenticationMiddleware>();
     })
     .ConfigureOpenApi()
     .ConfigureServices(services =>
     {
-        // Application Insights (isolated)
         services.AddApplicationInsightsTelemetryWorkerService();
         services.ConfigureFunctionsApplicationInsights();
 
-        // Register CosmosClient - Updated to match your local.settings.json
-        services.AddSingleton<CosmosClient>(serviceProvider =>
+        // Singleton CosmosClient from env var
+        services.AddSingleton<CosmosClient>(_ =>
         {
-            var connectionString = Environment.GetEnvironmentVariable("CosmosConnectionString");
-            if (string.IsNullOrEmpty(connectionString))
-            {
-                throw new InvalidOperationException("CosmosConnectionString environment variable is not set");
-            }
-            return new CosmosClient(connectionString);
+            var cs = Environment.GetEnvironmentVariable("CosmosConnectionString");
+            if (string.IsNullOrEmpty(cs))
+                throw new InvalidOperationException("CosmosConnectionString env var is not set");
+            return new CosmosClient(cs);
         });
 
-        // Your existing DI services
-        services.AddScoped<ICosmosService>(serviceProvider => 
+        // Repositories via DI
+        services.AddScoped<IUserRepository>(sp =>
         {
-            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-            var logger = serviceProvider.GetRequiredService<ILogger<CosmosService>>();
-            var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
-            return new CosmosService(configuration, logger, loggerFactory);
+            var client = sp.GetRequiredService<CosmosClient>();
+            var dbName = Environment.GetEnvironmentVariable("CosmosDb_DatabaseName") ?? "lookatdeez-db";
+            var logger = sp.GetRequiredService<ILogger<UserRepository>>();
+            return new UserRepository(client, dbName, logger);
         });
+
+        services.AddScoped<IFriendRequestRepository>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            var dbName = Environment.GetEnvironmentVariable("CosmosDb_DatabaseName") ?? "lookatdeez-db";
+            return new FriendRequestRepository(client, dbName);
+        });
+
+        // CosmosService resolved by constructor injection (no factory lambda needed)
+        services.AddScoped<ICosmosService, CosmosService>();
+
         services.AddScoped<AuthorizationService>();
-
-        // Fixed UserRepository registration with proper constructor parameters
-        services.AddScoped<IUserRepository>(serviceProvider =>
-        {
-            var cosmosClient = serviceProvider.GetRequiredService<CosmosClient>();
-            var databaseName = Environment.GetEnvironmentVariable("CosmosDb_DatabaseName") ?? "lookatdeez-db";
-            var logger = serviceProvider.GetRequiredService<ILogger<UserRepository>>();
-            return new UserRepository(cosmosClient, databaseName, logger);
-        });
-
-        // Optional: logging/config extras
-        // services.AddLogging();
-        // services.Configure<MyOptions>(...);
     })
     .Build();
+
 
 host.Run();
