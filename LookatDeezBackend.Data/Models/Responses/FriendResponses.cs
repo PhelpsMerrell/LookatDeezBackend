@@ -1,3 +1,6 @@
+using Newtonsoft.Json;
+using System.Text.Json.Serialization;
+
 namespace LookatDeezBackend.Data.Models.Responses
 {
     public class FriendRequestResponse
@@ -20,9 +23,20 @@ namespace LookatDeezBackend.Data.Models.Responses
 
     public class FriendResponse
     {
+        [JsonPropertyName("id")]
+        [JsonProperty("id")]
         public string Id { get; set; }
+        
+        [JsonPropertyName("displayName")]
+        [JsonProperty("displayName")]
         public string DisplayName { get; set; }
+        
+        [JsonPropertyName("email")]
+        [JsonProperty("email")]
         public string Email { get; set; }
+        
+        [JsonPropertyName("friendsSince")]
+        [JsonProperty("friendsSince")]
         public DateTime FriendsSince { get; set; }
     }
 }
