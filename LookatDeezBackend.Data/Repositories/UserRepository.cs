@@ -89,8 +89,27 @@ namespace LookatDeezBackend.Data.Repositories
 
         public async Task<Models.User> UpdateUserAsync(Models.User user)
         {
-            var response = await _container.ReplaceItemAsync(user, user.Id, new PartitionKey(user.Id));
-            return response.Resource;
+            try
+            {
+                _logger?.LogInformation("Updating user - ID: {UserId}, Friends count: {FriendCount}, Friends: [{Friends}]", 
+                    user.Id, user.Friends?.Count ?? 0, user.Friends != null ? string.Join(", ", user.Friends) : "none");
+                    
+                var response = await _container.ReplaceItemAsync(user, user.Id, new PartitionKey(user.Id));
+                
+                _logger?.LogInformation("User updated successfully - ID: {UserId}", user.Id);
+                return response.Resource;
+            }
+            catch (CosmosException ex)
+            {
+                _logger?.LogError(ex, "CosmosDB error updating user - StatusCode: {StatusCode}, Message: {Message}, UserId: {UserId}", 
+                    ex.StatusCode, ex.Message, user.Id);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Unexpected error updating user - UserId: {UserId}", user.Id);
+                throw;
+            }
         }
 
         public async Task<List<Models.User>> SearchUsersAsync(string searchTerm)

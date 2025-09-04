@@ -12,6 +12,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using User = LookatDeezBackend.Data.Models.User;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace LookatDeezBackend.Data.Services
 {
@@ -23,7 +24,7 @@ namespace LookatDeezBackend.Data.Services
         private readonly IUserRepository _userRepository;
         private readonly ILogger<CosmosService> _logger;
 
-        public CosmosService(IConfiguration configuration, ILogger<CosmosService> logger)
+        public CosmosService(IConfiguration configuration, ILogger<CosmosService> logger, ILoggerFactory loggerFactory)
         {
             _logger = logger;
             
@@ -44,7 +45,11 @@ namespace LookatDeezBackend.Data.Services
             
             // Initialize repositories
             _friendRequestRepository = new FriendRequestRepository(cosmosClient, databaseName);
-            _userRepository = new UserRepository(cosmosClient, databaseName);
+            
+            // Create a logger for UserRepository
+           
+            var userRepoLogger = loggerFactory.CreateLogger<UserRepository>();
+            _userRepository = new UserRepository(cosmosClient, databaseName, userRepoLogger);
             
             _logger.LogInformation("CosmosService initialization completed");
         }

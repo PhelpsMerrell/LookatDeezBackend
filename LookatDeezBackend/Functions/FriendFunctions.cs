@@ -3,6 +3,7 @@ using LookatDeezBackend.Data.Models.Requests;
 using LookatDeezBackend.Data.Models.Responses;
 using LookatDeezBackend.Data.Services;
 using LookatDeezBackend.Extensions;
+using LookatDeezBackend.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Azure.WebJobs.Extensions.OpenApi.Core.Attributes;
@@ -62,17 +63,24 @@ namespace LookatDeezBackend.Functions
             try
             {
                 var currentUserId = context.GetUserId();
+                _logger.LogInformation("GetUserFriends called for userId: {UserId} by currentUser: {CurrentUserId}", userId, currentUserId);
+                
                 var user = await _cosmosService.GetUserByIdAsync(userId);
                 if (user == null)
                 {
-                    var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                    _logger.LogWarning("User not found: {UserId}", userId);
+                    var notFoundResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.NotFound);
                     await notFoundResponse.WriteStringAsync("User not found");
                     return notFoundResponse;
                 }
 
+                _logger.LogInformation("User {UserId} has {FriendCount} friends: [{Friends}]", 
+                    userId, user.Friends.Count, string.Join(", ", user.Friends));
+
                 var friends = new List<FriendResponse>();
                 foreach (var friendId in user.Friends)
                 {
+                    _logger.LogInformation("Fetching friend details for: {FriendId}", friendId);
                     var friend = await _cosmosService.GetUserByIdAsync(friendId);
                     if (friend != null)
                     {
@@ -81,19 +89,24 @@ namespace LookatDeezBackend.Functions
                             Id = friend.Id,
                             DisplayName = friend.DisplayName,
                             Email = friend.Email,
-                            FriendsSince = friend.CreatedAt
+                            FriendsSince = friend.CreatedAt  // TODO: This should track when they became friends, not user creation date
                         });
+                        _logger.LogInformation("Added friend to response: {FriendId} - {DisplayName}", friend.Id, friend.DisplayName);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Friend not found in database: {FriendId}", friendId);
                     }
                 }
 
-                var response = req.CreateResponse(HttpStatusCode.OK);
+                var response = CorsHelper.CreateCorsResponse(req, HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(friends);
                 return response;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting user friends for user {UserId}", userId);
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
                 await errorResponse.WriteStringAsync("An error occurred while retrieving friends");
                 return errorResponse;
             }
@@ -143,14 +156,14 @@ namespace LookatDeezBackend.Functions
 
                 if (createRequest == null || string.IsNullOrEmpty(createRequest.ToUserId))
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("ToUserId is required");
                     return badRequestResponse;
                 }
 
                 if (currentUserId == createRequest.ToUserId)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("Cannot send friend request to yourself");
                     return badRequestResponse;
                 }
@@ -158,7 +171,7 @@ namespace LookatDeezBackend.Functions
                 var targetUser = await _cosmosService.GetUserByIdAsync(createRequest.ToUserId);
                 if (targetUser == null)
                 {
-                    var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                    var notFoundResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.NotFound);
                     await notFoundResponse.WriteStringAsync("Target user not found");
                     return notFoundResponse;
                 }
@@ -166,7 +179,7 @@ namespace LookatDeezBackend.Functions
                 var currentUser = await _cosmosService.GetUserByIdAsync(currentUserId);
                 if (currentUser?.Friends?.Contains(createRequest.ToUserId) == true)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("Users are already friends");
                     return badRequestResponse;
                 }
@@ -176,14 +189,14 @@ namespace LookatDeezBackend.Functions
 
                 if (existingRequest?.Status == FriendRequestStatus.Pending)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("Friend request already sent");
                     return badRequestResponse;
                 }
 
                 if (reverseRequest?.Status == FriendRequestStatus.Pending)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("This user has already sent you a friend request");
                     return badRequestResponse;
                 }
@@ -209,14 +222,14 @@ namespace LookatDeezBackend.Functions
                     RespondedAt = createdRequest.RespondedAt
                 };
 
-                var response = req.CreateResponse(HttpStatusCode.Created);
+                var response = CorsHelper.CreateCorsResponse(req, HttpStatusCode.Created);
                 await response.WriteAsJsonAsync(responseData);
                 return response;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error sending friend request");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
                 await errorResponse.WriteStringAsync("An error occurred while sending friend request");
                 return errorResponse;
             }
@@ -227,17 +240,13 @@ namespace LookatDeezBackend.Functions
         [OpenApiSecurity("bearer_auth", SecuritySchemeType.Http, Scheme = OpenApiSecuritySchemeType.Bearer, BearerFormat = "JWT")]
         [OpenApiResponseWithBody(statusCode: HttpStatusCode.OK, contentType: "application/json", bodyType: typeof(FriendRequestsEnvelope))]
         public async Task<HttpResponseData> GetFriendRequests(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "friend-requests")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "friend-requests")] HttpRequestData req,
+            FunctionContext context)
         {
             try
             {
-                var currentUserId = await AuthHelper.GetUserIdAsync(req, _logger);
-                if (string.IsNullOrEmpty(currentUserId))
-                {
-                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
-                    return unauthorizedResponse;
-                }
+                var currentUserId = context.GetUserId();
+                _logger.LogInformation("Getting friend requests for user: {UserId}", currentUserId);
 
                 // Get sent and received requests
                 var sentRequests = await _cosmosService.GetSentRequestsAsync(currentUserId);
@@ -278,14 +287,14 @@ namespace LookatDeezBackend.Functions
                     });
                 }
 
-                var response = req.CreateResponse(HttpStatusCode.OK);
+                var response = CorsHelper.CreateCorsResponse(req, HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(envelope);
                 return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting friend requests for user {UserId}", await AuthHelper.GetUserIdAsync(req, _logger));
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                _logger.LogError(ex, "Error getting friend requests");
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
                 await errorResponse.WriteStringAsync("An error occurred while retrieving friend requests");
                 return errorResponse;
             }
@@ -301,24 +310,20 @@ namespace LookatDeezBackend.Functions
         [OpenApiResponseWithBody(statusCode: HttpStatusCode.NotFound, contentType: "application/json", bodyType: typeof(object))]
         public async Task<HttpResponseData> UpdateFriendRequest(
             [HttpTrigger(AuthorizationLevel.Anonymous, "put", Route = "friend-requests/{requestId}")] HttpRequestData req,
-            string requestId)
+            string requestId,
+            FunctionContext context)
         {
             try
             {
-                var currentUserId = await AuthHelper.GetUserIdAsync(req, _logger);
-                if (string.IsNullOrEmpty(currentUserId))
-                {
-                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
-                    return unauthorizedResponse;
-                }
+                var currentUserId = context.GetUserId();
+                _logger.LogInformation("User {UserId} updating friend request {RequestId}", currentUserId, requestId);
 
                 var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 var updateRequest = JsonConvert.DeserializeObject<UpdateFriendRequestRequest>(requestBody);
 
                 if (updateRequest == null)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("Invalid request body");
                     return badRequestResponse;
                 }
@@ -327,7 +332,7 @@ namespace LookatDeezBackend.Functions
                 var friendRequest = await _cosmosService.GetFriendRequestByIdAsync(requestId);
                 if (friendRequest == null)
                 {
-                    var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                    var notFoundResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.NotFound);
                     await notFoundResponse.WriteStringAsync("Friend request not found");
                     return notFoundResponse;
                 }
@@ -335,7 +340,7 @@ namespace LookatDeezBackend.Functions
                 // Only the recipient can accept/decline
                 if (friendRequest.ToUserId != currentUserId)
                 {
-                    var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
+                    var forbiddenResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.Forbidden);
                     await forbiddenResponse.WriteStringAsync("You can only respond to friend requests sent to you");
                     return forbiddenResponse;
                 }
@@ -343,7 +348,7 @@ namespace LookatDeezBackend.Functions
                 // Can only update pending requests
                 if (friendRequest.Status != FriendRequestStatus.Pending)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("Friend request has already been responded to");
                     return badRequestResponse;
                 }
@@ -357,23 +362,46 @@ namespace LookatDeezBackend.Functions
                 // If accepted, add each other as friends
                 if (updateRequest.Status == FriendRequestStatus.Accepted)
                 {
+                    _logger.LogInformation("Friend request accepted, updating friend lists");
+                    
                     var fromUser = await _cosmosService.GetUserByIdAsync(friendRequest.FromUserId);
                     var toUser = await _cosmosService.GetUserByIdAsync(friendRequest.ToUserId);
 
                     if (fromUser != null && toUser != null)
                     {
+                        _logger.LogInformation("Found both users - FromUser: {FromUserId}, ToUser: {ToUserId}", fromUser.Id, toUser.Id);
+                        _logger.LogInformation("FromUser current friends: [{Friends}]", string.Join(", ", fromUser.Friends));
+                        _logger.LogInformation("ToUser current friends: [{Friends}]", string.Join(", ", toUser.Friends));
+                        
                         // Add to each other's friends list
                         if (!fromUser.Friends.Contains(toUser.Id))
                         {
                             fromUser.Friends.Add(toUser.Id);
                             await _cosmosService.UpdateUserAsync(fromUser);
+                            _logger.LogInformation("Added {ToUserId} to {FromUserId}'s friends list", toUser.Id, fromUser.Id);
+                        }
+                        else
+                        {
+                            _logger.LogInformation("{ToUserId} already in {FromUserId}'s friends list", toUser.Id, fromUser.Id);
                         }
 
                         if (!toUser.Friends.Contains(fromUser.Id))
                         {
                             toUser.Friends.Add(fromUser.Id);
                             await _cosmosService.UpdateUserAsync(toUser);
+                            _logger.LogInformation("Added {FromUserId} to {ToUserId}'s friends list", fromUser.Id, toUser.Id);
                         }
+                        else
+                        {
+                            _logger.LogInformation("{FromUserId} already in {ToUserId}'s friends list", fromUser.Id, toUser.Id);
+                        }
+                        
+                        _logger.LogInformation("Friend lists updated successfully");
+                    }
+                    else
+                    {
+                        _logger.LogError("One or both users not found - FromUser: {FromUserFound}, ToUser: {ToUserFound}", 
+                            fromUser != null, toUser != null);
                     }
                 }
 
@@ -393,14 +421,14 @@ namespace LookatDeezBackend.Functions
                     RespondedAt = updatedRequest.RespondedAt
                 };
 
-                var response = req.CreateResponse(HttpStatusCode.OK);
+                var response = CorsHelper.CreateCorsResponse(req, HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(responseData);
                 return response;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error updating friend request {RequestId}", requestId);
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
                 await errorResponse.WriteStringAsync("An error occurred while updating friend request");
                 return errorResponse;
             }
@@ -414,17 +442,13 @@ namespace LookatDeezBackend.Functions
         [OpenApiResponseWithBody(statusCode: HttpStatusCode.NotFound, contentType: "application/json", bodyType: typeof(object))]
         public async Task<HttpResponseData> RemoveFriend(
             [HttpTrigger(AuthorizationLevel.Anonymous, "delete", Route = "friends/{friendId}")] HttpRequestData req,
-            string friendId)
+            string friendId,
+            FunctionContext context)
         {
             try
             {
-                var currentUserId = await AuthHelper.GetUserIdAsync(req, _logger);
-                if (string.IsNullOrEmpty(currentUserId))
-                {
-                    var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauthorizedResponse.WriteAsJsonAsync(new { error = "Valid JWT token required" });
-                    return unauthorizedResponse;
-                }
+                var currentUserId = context.GetUserId();
+                _logger.LogInformation("User {UserId} removing friend {FriendId}", currentUserId, friendId);
 
                 // Get both users
                 var currentUser = await _cosmosService.GetUserByIdAsync(currentUserId);
@@ -432,14 +456,14 @@ namespace LookatDeezBackend.Functions
 
                 if (currentUser == null)
                 {
-                    var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                    var notFoundResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.NotFound);
                     await notFoundResponse.WriteStringAsync("Current user not found");
                     return notFoundResponse;
                 }
 
                 if (friendUser == null)
                 {
-                    var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                    var notFoundResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.NotFound);
                     await notFoundResponse.WriteStringAsync("Friend not found");
                     return notFoundResponse;
                 }
@@ -447,7 +471,7 @@ namespace LookatDeezBackend.Functions
                 // Check if they are actually friends
                 if (!currentUser.Friends.Contains(friendId))
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
                     await badRequestResponse.WriteStringAsync("Users are not friends");
                     return badRequestResponse;
                 }
@@ -460,13 +484,13 @@ namespace LookatDeezBackend.Functions
                 await _cosmosService.UpdateUserAsync(currentUser);
                 await _cosmosService.UpdateUserAsync(friendUser);
 
-                var response = req.CreateResponse(HttpStatusCode.NoContent);
+                var response = CorsHelper.CreateCorsResponse(req, HttpStatusCode.NoContent);
                 return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error removing friend {FriendId} for user {UserId}", friendId, await AuthHelper.GetUserIdAsync(req, _logger));
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                _logger.LogError(ex, "Error removing friend {FriendId}", friendId);
+                var errorResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.InternalServerError);
                 await errorResponse.WriteStringAsync("An error occurred while removing friend");
                 return errorResponse;
             }

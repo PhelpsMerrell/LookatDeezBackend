@@ -39,7 +39,8 @@ var host = new HostBuilder()
         {
             var configuration = serviceProvider.GetRequiredService<IConfiguration>();
             var logger = serviceProvider.GetRequiredService<ILogger<CosmosService>>();
-            return new CosmosService(configuration, logger);
+            var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+            return new CosmosService(configuration, logger, loggerFactory);
         });
         services.AddScoped<AuthorizationService>();
 
