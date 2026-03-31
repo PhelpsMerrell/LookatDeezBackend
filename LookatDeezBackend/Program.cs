@@ -1,6 +1,7 @@
 using LookatDeezBackend.Data.Repositories;
 using LookatDeezBackend.Data.Services;
 using LookatDeezBackend.Middleware;
+using LookatDeezBackend.Settings;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -20,6 +21,13 @@ var host = new HostBuilder()
     {
         services.AddApplicationInsightsTelemetryWorkerService();
         services.ConfigureFunctionsApplicationInsights();
+
+        // JWT signing key — pulled from app settings / Key Vault reference
+        services.AddSingleton(_ =>
+        {
+            var signingKey = Environment.GetEnvironmentVariable("JwtSigningKey");
+            return new JwtSettings(signingKey!);
+        });
 
         // Singleton CosmosClient from env var
         services.AddSingleton<CosmosClient>(_ =>
@@ -46,12 +54,9 @@ var host = new HostBuilder()
             return new FriendRequestRepository(client, dbName);
         });
 
-        // CosmosService resolved by constructor injection (no factory lambda needed)
         services.AddScoped<ICosmosService, CosmosService>();
-
         services.AddScoped<AuthorizationService>();
     })
     .Build();
-
 
 host.Run();

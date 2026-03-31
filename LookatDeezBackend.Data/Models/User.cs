@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -8,7 +8,6 @@ using System.Text.Json.Serialization;
 
 namespace LookatDeezBackend.Data.Models
 {
-
     public class User
     {
         [JsonPropertyName("id")]
@@ -30,5 +29,19 @@ namespace LookatDeezBackend.Data.Models
         [JsonPropertyName("friends")]
         [JsonProperty("friends")]
         public List<string> Friends { get; set; } = new List<string>();
+
+        /// <summary>
+        /// BCrypt hash of the user's password. Null for Microsoft/OAuth users.
+        /// </summary>
+        [JsonPropertyName("passwordHash")]
+        [JsonProperty("passwordHash")]
+        public string? PasswordHash { get; set; }
+
+        /// <summary>
+        /// "local" for email+password users, "microsoft" for Microsoft OAuth users.
+        /// </summary>
+        [JsonPropertyName("authProvider")]
+        [JsonProperty("authProvider")]
+        public string AuthProvider { get; set; } = "microsoft";
     }
 }
