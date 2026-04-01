@@ -428,11 +428,10 @@ namespace LookatDeezBackend.Functions
                     return badRequestResponse;
                 }
 
+                // Title is optional — default to "Untitled Item"
                 if (string.IsNullOrWhiteSpace(addItemRequest.Title))
                 {
-                    var badRequestResponse = CorsHelper.CreateCorsResponse(req, HttpStatusCode.BadRequest);
-                    await badRequestResponse.WriteStringAsync("Title is required");
-                    return badRequestResponse;
+                    addItemRequest.Title = "Untitled Item";
                 }
 
                 if (string.IsNullOrWhiteSpace(addItemRequest.Url))
